@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D Рыцарь</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #87CEEB; touch-action: none; }
+        canvas { display: block; }
+        #controls {
+            position: absolute; bottom: 20px; left: 0; width: 100%;
+            display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box;
+            pointer-events: none;
+        }
+        .dpad { display: grid; grid-template-columns: 60px 60px 60px; gap: 5px; pointer-events: auto; }
+        .dpad button {
+            width: 60px; height: 60px; border-radius: 10px;
+            background: rgba(139, 111, 71, 0.8); border: 2px solid #f0c060;
+            color: white; font-size: 24px; font-weight: bold;
+        }
+        .dpad button:active { background: #f0c060; color: black; }
+        .action-btns { display: flex; flex-direction: column; gap: 10px; pointer-events: auto; justify-content: flex-end; }
+        .action-btns button {
+            width: 80px; height: 80px; border-radius: 50%;
+            background: rgba(200, 50, 50, 0.8); border: 2px solid #ffcccc;
+            color: white; font-size: 16px; font-weight: bold;
+        }
+        .action-btns button:active { background: #ffcccc; color: black; }
+        #hud {
+            position: absolute; top: 10px; left: 10px; color: white; font-family: sans-serif;
+            text-shadow: 2px 2px 4px black; font-size: 18px; pointer-events: none;
+        }
+    </style>
+    <!-- Подключаем 3D-движок Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="hud">
+        <div>❤️ Здоровье: 100</div>
+        <div>⚔️ Врагов: 0</div>
+    </div>
+
+    <div id="controls">
+        <div class="dpad">
+            <div></div>
+            <button id="btnUp">▲</button>
+            <div></div>
+            <button id="btnLeft">◀</button>
+            <button id="btnDown">▼</button>
+            <button id="btnRight">▶</button>
+        </div>
+        <div class="action-btns">
+            <button id="btnAttack">АТАКА</button>
+        </div>
+    </div>
+
+    <script>
+        // 1. Создаем сцену, камеру и рендерер
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Небо
+        scene.fog = new THREE.Fog(0x87CEEB, 20, 100); // Туман на горизонте
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true; // Включаем тени
+        document.body.appendChild(renderer.domElement);
+
+        // 2. Свет
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(20, 50, 20);
+        dirLight.castShadow = true;
+        dirLight.shadow.camera.top = 50;
+        dirLight.shadow.camera.bottom = -50;
+        dirLight.shadow.camera.left = -50;
+        dirLight.shadow.camera.right = 50;
+        scene.add(dirLight);
+
+        // 3. Земля (трава)
+        const groundGeo = new THREE.PlaneGeometry(200, 200);
+        const groundMat = new THREE.MeshLambertMaterial({ color: 0x4a7a3a });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // 4. Игрок (Рыцарь)
+        const playerGeo = new THREE.CylinderGeometry(0.5, 0.5, 1.8, 16);
+        const playerMat = new THREE.MeshLambertMaterial({ color: 0xc0c0c0 }); // Серебряная броня
+        const player = new THREE.Mesh(playerGeo, playerMat);
+        player.position.set(0, 0.9, 0);
+        player.castShadow = true;
+        scene.add(player);
+        
+        // Меч игрока
+        const swordGeo = new THREE.BoxGeometry(0.1, 1.2, 0.1);
+        const swordMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+        const sword = new THREE.Mesh(swordGeo, swordMat);
+        sword.position.set(0.6, 0, 0);
+        sword.castShadow = true;
+        player.add(sword);
+
+        // 5. Окружающий мир (Деревья и Замок)
+        // Деревья
+        for(let i=0; i<50; i++) {
+            const tree = new THREE.Group();
+            // Ствол
+            const trunkGeo = new THREE.CylinderGeometry(0.3, 0.4, 2, 8);
+            const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5a3a1a });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 1;
+            trunk.castShadow = true;
+            tree.add(trunk);
+            // Крона
+            const leavesGeo = new THREE.ConeGeometry(1.5, 3, 8);
+            const leavesMat = new THREE.MeshLambertMaterial({ color: 0x2a5a2a });
+            const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+            leaves.position.y = 3;
+            leaves.castShadow = true;
+            tree.add(leaves);
+            
+            // Случайная позиция
+            tree.position.set((Math.random() - 0.5) * 80, 0, (Math.random() - 0.5) * 80);
+            // Не спавним деревья на игроке
+            if(tree.position.length() > 5) scene.add(tree);
+        }
+
+        // Замок (простая коробка)
+        const castleGeo = new THREE.BoxGeometry(10, 15, 10);
+        const castleMat = new THREE.MeshLambertMaterial({ color: 0x808080 });
+        const castle = new THREE.Mesh(castleGeo, castleMat);
+        castle.position.set(-30, 7.5, -30);
+        castle.castShadow = true;
+        castle.receiveShadow = true;
+        scene.add(castle);
+
+        // 6. Враги
+        const enemies = [];
+        for(let i=0; i<5; i++) {
+            const eGeo = new THREE.CylinderGeometry(0.5, 0.5, 1.8, 16);
+            const eMat = new THREE.MeshLambertMaterial({ color: 0xaa2020 }); // Красные
+            const enemy = new THREE.Mesh(eGeo, eMat);
+            enemy.position.set((Math.random() - 0.5) * 30 + 10, 0.9, (Math.random() - 0.5) * 30 + 10);
+            enemy.castShadow = true;
+            scene.add(enemy);
+            enemies.push(enemy);
+        }
+
+        // 7. Логика движения и управления
+        let speed = 0.2;
+        const keys = { up: false, down: false, left: false, right: false };
+        
+        const btnUp = document.getElementById('btnUp');
+        const btnDown = document.getElementById('btnDown');
+        const btnLeft = document.getElementById('btnLeft');
+        const btnRight = document.getElementById('btnRight');
+        const btnAttack = document.getElementById('btnAttack');
+
+        // Обработка кнопок на экране
+        function bindBtn(btn, key) {
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[key] = true; });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; });
+            btn.addEventListener('mousedown', () => keys[key] = true);
+            btn.addEventListener('mouseup', () => keys[key] = false);
+            btn.addEventListener('mouseleave', () => keys[key] = false);
+        }
+        bindBtn(btnUp, 'up'); bindBtn(btnDown, 'down');
+        bindBtn(btnLeft, 'left'); bindBtn(btnRight, 'right');
+
+        // Атака
+        let isAttacking = false;
+        btnAttack.addEventListener('touchstart', (e) => { 
+            e.preventDefault(); 
+            if(!isAttacking) { isAttacking = true; sword.rotation.z = -1.5; setTimeout(()=>{ sword.rotation.z = 0; isAttacking = false; }, 300); }
+        });
+
+        // 8. Игровой цикл
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Движение игрока
+            if (keys.up) player.position.z -= speed;
+            if (keys.down) player.position.z += speed;
+            if (keys.left) player.position.x -= speed;
+            if (keys.right) player.position.x += speed;
+
+            // Поворот игрока в сторону движения (упрощенно)
+            if (keys.left) player.rotation.y = Math.PI / 2;
+            if (keys.right) player.rotation.y = -Math.PI / 2;
+            if (keys.up) player.rotation.y = 0;
+            if (keys.down) player.rotation.y = Math.PI;
+
+            // Камера следует за игроком сзади и сверху
+            camera.position.x = player.position.x;
+            camera.position.y = player.position.y + 8;
+            camera.position.z = player.position.z + 12;
+            camera.lookAt(player.position);
+
+            // Враги идут к игроку (простой ИИ)
+            enemies.forEach(enemy => {
+                if(enemy.position.distanceTo(player.position) < 15) {
+                    enemy.lookAt(player.position.x, enemy.position.y, player.position.z);
+                    enemy.translateZ(speed * 0.5); // Идут медленнее
+                }
+                // Если враг близко — бьет игрока
+                if(enemy.position.distanceTo(player.position) < 1.5) {
+                    document.getElementById('hud').innerHTML = '<div style="color:red">❤️ Здоровье: 80</div>';
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // Адаптация под размер экрана
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Запуск
+        animate();
+    </script>
+</body>
+</html>
