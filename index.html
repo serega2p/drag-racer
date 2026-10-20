@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Drag Racer v6</title>
+<title>Drag Racer v6.1</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{width:100%;height:100dvh;overflow:hidden;background:#000;font-family:Arial,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
@@ -15,9 +15,9 @@ canvas{display:block;touch-action:none}
 </head>
 <body>
 <div id="start">
-  <b>🏁 DRAG RACER v6</b>
+  <b>🏁 DRAG RACER v6.1</b>
   Мобильная версия
-  <small>Починено управление и интерфейс<br>Нажми для игры</small>
+  <small>Починено управление газом<br>Нажми для игры</small>
 </div>
 <canvas id="c"></canvas>
 <script>
@@ -738,8 +738,10 @@ function collideBuildings(p){
 }
 
 function updateWorld(dt){
-  const p = state.player, k = state.keys;
-  const up = k['w']||k['arrowup']||k['_up'], dn = k['s']||k['arrowdown']||k['_down'], lf = k['a']||k['arrowleft']||k['_left'], rt = k['d']||k['arrowright']||k['_right'];
+  const p = state.player, k = state.keys, tb = touchBtnState;
+  // ФИКС: теперь игра читает и с клавиатуры, и с экранных кнопок
+  const up = k['w']||k['arrowup']||tb['_up'], dn = k['s']||k['arrowdown']||tb['_down'], lf = k['a']||k['arrowleft']||tb['_left'], rt = k['d']||k['arrowright']||tb['_right'];
+  
   if (up) p.speed = Math.min(700, p.speed + 900*dt); else if (dn) p.speed = Math.max(0, p.speed - 1400*dt); else p.speed = Math.max(0, p.speed - 500*dt);
   const turn = (lf?-1:0)+(rt?1:0), sf = Math.min(1, p.speed/120); p.angle += turn * sf * 2.8 * dt;
   p.x += Math.cos(p.angle) * p.speed * dt; p.y += Math.sin(p.angle) * p.speed * dt;
@@ -809,8 +811,8 @@ function escape(){
 }
 
 // ============ MULTI-TOUCH FIX ============
-let activeTouches = new Map(); // identifier -> button id
-let touchBtnState = {}; // button id -> boolean
+let activeTouches = new Map();
+let touchBtnState = {};
 
 function getMobileButtons(){
   if (!isMobile) return [];
@@ -821,7 +823,7 @@ function getMobileButtons(){
     btns.push({id:'_left', x:bx, y:by+bs, w:bs, h:bs, label:'◄'});
     btns.push({id:'_down', x:bx+bs, y:by+bs*2, w:bs, h:bs, label:'▼'});
     btns.push({id:'_right', x:bx+bs*2, y:by+bs, w:bs, h:bs, label:'►'});
-    btns.push({id:'_act', x:pad, y:H-bs-pad*2-20, w:bs*2.5, h:bs, label:'ДЕЙСТВИЕ'});
+    btns.push({id:'_act', x:pad, y:H-bs-pad*2-20, w:bs*2.5, h:bs, label:'E'});
   } else if (state.mode === 'RACE') {
     btns.push({id:'_nitro', x:W-250-pad, y:H-250-pad, w:240, h:100, label:'N2O'});
     btns.push({id:'_shift', x:W-250-pad, y:H-130-pad, w:240, h:115, label:'SHIFT'});
@@ -860,7 +862,6 @@ canvas.addEventListener('touchstart', e => {
     }
     if (handled) continue;
     
-    // Tap logic for UI
     if (state.mode === 'RESULT') { state.mode = 'WORLD'; state.race = null; }
     else if (state.mode === 'GARAGE') handleGarageTap(t.clientX, t.clientY);
     else if (state.mode === 'DEALER') handleDealerTap(t.clientX, t.clientY);
@@ -875,7 +876,6 @@ canvas.addEventListener('touchend', e => {
     const btnId = activeTouches.get(t.identifier);
     if (btnId) {
       activeTouches.delete(t.identifier);
-      // Check if any other finger is holding this button
       let stillPressed = false;
       for (const [id, bid] of activeTouches.entries()) if (bid === btnId) stillPressed = true;
       touchBtnState[btnId] = stillPressed;
@@ -1040,7 +1040,6 @@ function drawDealer(){
     ctx.fillText(owned ? '✓ КУПЛЕНО' : `$${car.price}`, x+6, y+62);
   });
 
-  // Up/Down Buttons
   const btnW = (W - 40 - 10) / 2;
   const btnY = H - 65;
   
@@ -1056,7 +1055,7 @@ function drawDealer(){
   }
   
   ctx.fillStyle = '#888'; setFont(12); ctx.textAlign = 'center';
-  ctx.fillText(`Всего: ${CARS.length} | ESC — назад`, W/2, H - 10);
+  ctx.fillText(`Всего: ${CARS.length} | Нажми "В МИР" справа`, W/2, H - 10);
 }
 
 function handleDealerTap(x, y){
@@ -1072,7 +1071,6 @@ function handleDealerTap(x, y){
     }
   }
   
-  // Нажатие в самый верх - выход (на всякий случай)
   if (y < 60) { state.mode = 'WORLD'; return; }
 
   const top = 90, rowH = 75, pad = 10, cols = isMobile ? 2 : 3;
@@ -1173,7 +1171,6 @@ function renderWorld(){
   }
   ctx.restore();
 
-  // HUD
   ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(12, 12, Math.min(280, W-24), 110);
   ctx.fillStyle = 'white'; ctx.textAlign = 'left'; setFont(14, 'bold');
   ctx.fillText(`${getCar(state.currentCar).brand} ${getCar(state.currentCar).model}`, 20, 32);
