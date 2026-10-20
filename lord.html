@@ -1,0 +1,1722 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Средневековый лорд</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#1a1410;--bg2:#2a1f15;--gold:#f0c060;--gold2:#d4a574;
+  --brown:#8b6f47;--text:#e8d5b0;--muted:#a08860;
+  --good:#90e090;--bad:#e09090;--info:#c0a870;
+  --shadow:0 4px 20px rgba(0,0,0,.5);
+}
+body{font-family:Georgia,serif;background:var(--bg);color:var(--text);min-height:100vh;padding:8px;padding-bottom:40px;user-select:none;font-size:13px;overflow-x:hidden}
+h1{text-align:center;color:var(--gold2);margin:4px 0 8px;font-size:18px;text-shadow:0 2px 8px rgba(240,192,96,.3);animation:titleGlow 4s ease-in-out infinite}
+@keyframes titleGlow{0%,100%{text-shadow:0 2px 8px rgba(240,192,96,.3)}50%{text-shadow:0 2px 20px rgba(240,192,96,.6)}}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:6px;padding:8px;
+  background:linear-gradient(135deg,#2a1f15,#3a2a1a);border:1px solid var(--brown);border-radius:8px;
+  font-size:11px;box-shadow:var(--shadow)}
+.stat span{color:var(--gold);font-weight:bold;display:block;font-size:13px;text-shadow:0 0 6px rgba(240,192,96,.4);transition:all .3s}
+.stat span.flash{animation:statFlash .5s}
+@keyframes statFlash{0%{color:#fff;text-shadow:0 0 10px var(--gold)}100%{color:var(--gold)}}
+
+.xp-bar{height:6px;background:#1a1410;border:1px solid var(--brown);border-radius:4px;margin-bottom:6px;overflow:hidden;position:relative}
+.xp-fill{height:100%;background:linear-gradient(90deg,#6a5038,var(--gold));width:0%;transition:width .4s cubic-bezier(.4,0,.2,1);box-shadow:0 0 10px rgba(240,192,96,.5)}
+.xp-text{position:absolute;inset:0;text-align:center;font-size:8px;color:#fff;line-height:6px;text-shadow:1px 1px 1px #000}
+
+.quest{background:linear-gradient(135deg,#2a1f15,#3a2a1a);border-left:3px solid var(--gold);padding:6px 8px;margin-bottom:4px;font-size:11px;border-radius:0 6px 6px 0}
+.news{background:linear-gradient(135deg,#2a1f15,#3a2a1a);border-left:3px solid var(--brown);padding:5px 8px;margin-bottom:6px;font-size:10px;color:var(--muted);border-radius:0 6px 6px 0}
+.news i{color:var(--info);font-style:italic}
+
+.troops-bar{display:flex;gap:6px;font-size:10px;color:var(--muted);padding:5px 8px;
+  background:linear-gradient(135deg,#2a1f15,#3a2a1a);border-radius:6px;margin-bottom:6px;flex-wrap:wrap}
+.troops-bar b{color:var(--gold)}
+
+/* КАРТА */
+.map-wrap{background:linear-gradient(135deg,#3a2a1a,#2a1f15);border:1px solid var(--brown);border-radius:8px;
+  margin-bottom:6px;padding:4px;position:relative;height:260px;overflow:hidden;box-shadow:var(--shadow)}
+.map-svg{width:100%;height:100%;display:block;border-radius:4px}
+
+.map-army,.map-player,.map-caravan{
+  position:absolute;width:22px;height:22px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:bold;color:#fff;border:2px solid #000;
+  z-index:10;box-shadow:0 2px 8px rgba(0,0,0,.8);
+  will-change:transform;transition:transform .6s linear;
+  pointer-events:none;
+}
+.map-army{font-size:10px}
+.map-army.faction-svadia{background:linear-gradient(135deg,#e09040,#c08040);border-color:#f0c060;box-shadow:0 0 8px rgba(240,192,96,.6)}
+.map-army.faction-nord{background:linear-gradient(135deg,#60a0e0,#4080c0);border-color:#80b0f0;box-shadow:0 0 8px rgba(128,176,240,.6)}
+.map-army.faction-khergit{background:linear-gradient(135deg,#a0c060,#80a040);border-color:#c0e060;box-shadow:0 0 8px rgba(192,224,96,.6)}
+.map-army.faction-bandits{background:linear-gradient(135deg,#5a3a3a,#4a2a2a);border-color:#a04040;box-shadow:0 0 8px rgba(160,64,64,.6)}
+.map-army.faction-manhunters{background:linear-gradient(135deg,#7a6a4a,#5a4a2a);border-color:#c0a040}
+.map-player{background:radial-gradient(circle,#fff,#f0c060);border-color:#fff;color:#000;z-index:20;font-size:12px;
+  animation:playerPulse 2s ease-in-out infinite}
+@keyframes playerPulse{0%,100%{box-shadow:0 0 10px var(--gold),0 0 20px rgba(240,192,96,.3)}50%{box-shadow:0 0 20px var(--gold),0 0 35px rgba(240,192,96,.6)}}
+.map-caravan{background:linear-gradient(135deg,#c09060,#a07040);border-color:#f0d0a0;font-size:10px;z-index:15}
+
+/* Миникарта */
+.minimap{position:absolute;bottom:4px;right:4px;width:80px;height:80px;
+  background:rgba(26,20,16,.92);border:1px solid var(--brown);border-radius:4px;z-index:25;
+  box-shadow:0 2px 8px rgba(0,0,0,.7)}
+.minimap svg{width:100%;height:100%;display:block}
+
+/* Погода */
+#weatherLayer{position:absolute;inset:0;pointer-events:none;z-index:30;overflow:hidden;border-radius:4px}
+.rain-drop,.snow-flake{position:absolute;pointer-events:none;will-change:transform}
+.rain-drop{width:1px;height:12px;background:linear-gradient(180deg,transparent,rgba(180,200,220,.7));animation:rainFall 1s linear infinite}
+@keyframes rainFall{to{transform:translateY(260px)}}
+.snow-flake{width:3px;height:3px;background:rgba(255,255,255,.8);border-radius:50%;animation:snowFall 4s linear infinite}
+@keyframes snowFall{to{transform:translateY(260px) translateX(20px)}}
+
+/* День/ночь */
+#daynightLayer{position:absolute;inset:0;pointer-events:none;z-index:5;border-radius:4px;transition:background 2s ease}
+#daynightLayer.dusk{background:rgba(200,100,40,.25)}
+#daynightLayer.night{background:rgba(20,30,60,.55)}
+#daynightLayer.dawn{background:rgba(240,150,100,.2)}
+
+/* КНОПКИ */
+button{background:linear-gradient(135deg,#4a3520,#5a4030);color:#f0d0a0;
+  border:1px solid var(--brown);border-radius:6px;padding:9px 10px;
+  font-size:13px;font-family:inherit;cursor:pointer;text-align:left;width:100%;
+  transition:all .15s;box-shadow:0 2px 4px rgba(0,0,0,.3)}
+button:active:not(:disabled){background:linear-gradient(135deg,#6a5038,#7a6048);transform:scale(.98);box-shadow:0 0 12px rgba(240,192,96,.4)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button small{display:block;color:var(--muted);font-size:10px;margin-top:2px}
+
+.location{background:linear-gradient(135deg,#2a1f15,#3a2a1a);border:1px solid var(--brown);border-radius:8px;
+  padding:10px;margin-bottom:8px;box-shadow:var(--shadow)}
+.location h2{color:var(--gold2);margin-bottom:4px;font-size:16px;text-shadow:0 1px 4px rgba(240,192,96,.3)}
+.location p{font-size:12px;line-height:1.4;margin-bottom:8px;color:#c4b090}
+.actions{display:flex;flex-direction:column;gap:5px}
+
+.log{background:#1a1410;border:1px solid #4a3520;border-radius:8px;padding:8px;font-size:11px;
+  max-height:110px;overflow-y:auto;line-height:1.4;box-shadow:inset 0 2px 8px rgba(0,0,0,.5)}
+.log .entry{padding:2px 0;border-bottom:1px solid #2a1f15;animation:logIn .3s ease}
+@keyframes logIn{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+.log .good{color:var(--good)}
+.log .bad{color:var(--bad)}
+.log .info{color:var(--info)}
+.log .event{color:var(--gold2);font-style:italic}
+.log .war{color:#e0a060;font-weight:bold}
+
+.top-buttons{display:flex;gap:5px;margin-bottom:8px;flex-wrap:wrap}
+.top-buttons button{padding:7px 3px;font-size:11px;text-align:center;flex:1;min-width:50px;background:linear-gradient(135deg,#4a3520,#5a4030)}
+
+#modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:100;
+  align-items:center;justify-content:center;padding:12px;backdrop-filter:blur(4px)}
+#modal.show{display:flex;animation:fadeIn .2s}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+#modalBody{background:linear-gradient(135deg,#2a1f15,#3a2a1a);border:2px solid var(--brown);border-radius:10px;
+  padding:12px;max-width:440px;width:100%;max-height:92vh;overflow-y:auto;
+  display:flex;flex-direction:column;gap:5px;box-shadow:0 10px 40px rgba(0,0,0,.8);animation:slideUp .3s}
+@keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:none;opacity:1}}
+#modalBody h2{color:var(--gold2);font-size:15px;text-align:center;margin-bottom:4px}
+#modalBody .section{background:#1a1410;border-radius:6px;padding:6px;font-size:11px;margin-bottom:4px;line-height:1.5}
+#modalBody .section b{color:var(--gold)}
+#modalBody textarea{width:100%;background:#1a1410;color:var(--text);border:1px solid var(--brown);
+  border-radius:4px;padding:6px;font-family:monospace;font-size:10px;height:70px}
+
+#victory{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:200;
+  align-items:center;justify-content:center;padding:20px;text-align:center}
+#victory.show{display:flex}
+#victory div{background:linear-gradient(135deg,#2a1f15,#3a2a1a);border:3px solid var(--gold);border-radius:12px;
+  padding:20px;max-width:380px;box-shadow:0 0 60px rgba(240,192,96,.5);animation:winPulse 2s infinite}
+@keyframes winPulse{0%,100%{box-shadow:0 0 60px rgba(240,192,96,.5)}50%{box-shadow:0 0 90px rgba(240,192,96,.8)}}
+#victory h2{color:var(--gold);margin-bottom:10px;font-size:22px}
+#victory p{color:var(--text);font-size:13px;line-height:1.6;margin-bottom:14px}
+
+/* Плавающие эффекты */
+.float-text{position:fixed;pointer-events:none;font-weight:bold;font-size:14px;
+  z-index:150;text-shadow:0 2px 4px rgba(0,0,0,.8);animation:floatUp 1.2s ease-out forwards}
+@keyframes floatUp{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-50px)}}
+.float-text.good{color:var(--good)}
+.float-text.bad{color:var(--bad)}
+.float-text.gold{color:var(--gold)}
+</style>
+</head>
+<body>
+
+<h1>⚔ Средневековый лорд ⚔</h1>
+
+<div class="stats">
+  <div class="stat">День<span id="day">1</span></div>
+  <div class="stat">Золото<span id="gold">100</span></div>
+  <div class="stat">Еда<span id="food">50</span></div>
+  <div class="stat">Пехота<span id="infantry">10</span></div>
+  <div class="stat">Кавалерия<span id="cavalry">0</span></div>
+  <div class="stat">Слава<span id="fame">0</span></div>
+</div>
+
+<div class="xp-bar"><div class="xp-fill" id="xpFill"></div><div class="xp-text" id="xpText"></div></div>
+
+<div class="troops-bar">
+  <div>🌤 <b id="season">Весна</b></div>
+  <div>⚔ <b id="power">10</b></div>
+  <div>💪 <b id="morale">100</b>%</div>
+  <div>🎖 <b id="level">1</b></div>
+  <div>🏰 <b id="owns">0</b></div>
+  <div>🤝 <b id="liege">—</b></div>
+</div>
+
+<div class="quest" id="quest"></div>
+<div class="news">🌍 <i id="newsText">Мир тих</i></div>
+
+<div class="top-buttons">
+  <button id="btnNew">🆕</button>
+  <button id="btnChar">👤</button>
+  <button id="btnWorld">🌍</button>
+  <button id="btnLords">👑</button>
+  <button id="btnSave">💾</button>
+</div>
+
+<div class="map-wrap" id="mapWrap">
+  <svg class="map-svg" viewBox="0 0 100 100" preserveAspectRatio="none" id="mapSvg">
+    <defs>
+      <radialGradient id="bgGrad" cx="50%" cy="50%">
+        <stop offset="0%" stop-color="#4a3a2a"/>
+        <stop offset="100%" stop-color="#1a1410"/>
+      </radialGradient>
+      <radialGradient id="waterGrad">
+        <stop offset="0%" stop-color="#3a5a7a"/>
+        <stop offset="100%" stop-color="#2a4060"/>
+      </radialGradient>
+    </defs>
+    <rect width="100" height="100" fill="url(#bgGrad)"/>
+    <g id="terrainLayer"></g>
+    <g id="decorLayer"></g>
+    <g id="roadsLayer" stroke="#5a4020" stroke-width=".4" stroke-dasharray=".8,.8" opacity=".6"></g>
+    <g id="locsLayer"></g>
+    <g id="cloudsLayer" opacity=".15"></g>
+  </svg>
+  <div id="daynightLayer"></div>
+  <div id="armiesLayer"></div>
+  <div id="weatherLayer"></div>
+  <div class="minimap"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><g id="miniDots"></g></svg></div>
+</div>
+
+<div id="content"></div>
+<div class="log" id="log"></div>
+
+<div id="modal"><div id="modalBody"></div></div>
+<div id="victory"><div>
+  <h2>👑 Вы — Лорд!</h2>
+  <p>Слава 100. Король даровал вам титул. Мир продолжает жить.</p>
+  <button onclick="document.getElementById('victory').classList.remove('show')">Продолжить</button>
+</div></div>
+
+<script>
+// ============ КОНСТАНТЫ ============
+const GOODS={grain:{name:'Зерно',icon:'🌾'},salt:{name:'Соль',icon:'🧂'},fur:{name:'Меха',icon:'🦊'},iron:{name:'Железо',icon:'⚒'}};
+const BASE_PRICE={grain:6,salt:14,fur:22,iron:16};
+const TARGET_STOCK={grain:60,salt:25,fur:12,iron:20};
+const WEAPONS={fists:{name:'Кулаки',atk:0,price:0},short_sword:{name:'Короткий меч',atk:2,price:50},long_sword:{name:'Длинный меч',atk:5,price:150},battle_axe:{name:'Боевой топор',atk:7,price:250},knight_sword:{name:'Рыцарский меч',atk:10,price:500}};
+const ARMORS={none:{name:'Без брони',def:0,price:0},leather:{name:'Кожаная',def:2,price:60},chain:{name:'Кольчуга',def:5,price:200},plate:{name:'Пластинчатая',def:10,price:600}};
+const HORSES={none:{name:'Пешком',bonus:0,price:0},hunter:{name:'Охотничий',bonus:.2,price:100},warhorse:{name:'Боевой',bonus:.5,price:400}};
+const HELMETS={none:{name:'Без шлема',def:0,price:0},cap:{name:'Кожаный',def:1,price:30},iron:{name:'Железный',def:3,price:120},great:{name:'Большой',def:6,price:400}};
+const BOOTS={none:{name:'Босиком',agi:0,price:0},leather:{name:'Кожаные',agi:1,price:40},steel:{name:'Стальные',agi:2,price:180}};
+const RINGS={none:{name:'Без кольца',fame:0,price:0},silver:{name:'Серебряное',fame:1,price:150},gold:{name:'Золотое',fame:3,price:400},royal:{name:'Королевский',fame:5,price:1000}};
+
+const COMPANIONS={
+  gareth:{name:'⚔ Гарет',desc:'+20% силы',price:200,fameReq:10,questLine:[
+    {desc:'Убейте 3 разбойников',check:()=>S.banditsKilled>=3,reward:{gold:100}},
+    {desc:'Победите 5 отрядов',check:()=>S.battlesWon>=5,reward:{gold:150}},
+    {desc:'Найдите меч брата (босс)',check:()=>S.bossesKilled>=1,reward:{gold:200,xp:30}}
+  ]},
+  isolde:{name:'👸 Изольда',desc:'+30% славы',price:250,fameReq:15,questLine:[
+    {desc:'Победите босса',check:()=>S.bossesKilled>=1,reward:{gold:100}},
+    {desc:'Снарядите караван',check:()=>S.caravansDone>=1,reward:{gold:150}},
+    {desc:'Достигните 50 славы',check:()=>S.fame>=50,reward:{gold:250,fame:10}}
+  ]},
+  tobias:{name:'🌿 Тобиас',desc:'-30% потерь',price:300,fameReq:20,questLine:[
+    {desc:'Принесите 3 меха',check:()=>S.goods.fur>=3,reward:{gold:80},consume:()=>{S.goods.fur-=3}},
+    {desc:'Принесите 5 железа',check:()=>S.goods.iron>=5,reward:{gold:120},consume:()=>{S.goods.iron-=5}},
+    {desc:'Одержите 10 побед',check:()=>S.battlesWon>=10,reward:{gold:300,xp:40}}
+  ]},
+  ali:{name:'💰 Али',desc:'+20% продажи',price:200,fameReq:10,questLine:[
+    {desc:'Снарядите 1 караван',check:()=>S.caravansDone>=1,reward:{gold:100}},
+    {desc:'Заработайте 2000 золота',check:()=>S.gold>=2000,reward:{gold:200}},
+    {desc:'Купите мастерскую',check:()=>Object.keys(S.workshops).length>0,reward:{gold:300}}
+  ]},
+  luca:{name:'🎵 Лука',desc:'+2 славы/день',price:350,fameReq:25,questLine:[
+    {desc:'Достигните 40 славы',check:()=>S.fame>=40,reward:{gold:100}},
+    {desc:'Посетите пир',check:()=>S.feastsVisited>=1,reward:{gold:150}},
+    {desc:'Женитесь',check:()=>S.wife!==null,reward:{gold:300,xp:50}}
+  ]}
+};
+
+const FACTIONS={svadia:{name:'Свадия'},nord:{name:'Норды'},khergit:{name:'Кергиты'}};
+const LORDS={
+  harlaus:{name:'Король Харлаус',faction:'svadia',home:'praven',personality:'cruel',title:'Король'},
+  derick:{name:'Граф Дерик',faction:'svadia',home:'castle',personality:'honorable',title:'Граф'},
+  baldwin:{name:'Барон Балдвин',faction:'svadia',home:'uxkhal',personality:'cunning',title:'Барон'},
+  clais:{name:'Барон Клэйс',faction:'svadia',home:'veluca',personality:'cunning',title:'Барон'},
+  ragnar:{name:'Король Рагнар',faction:'nord',home:'tihr',personality:'cruel',title:'Король'},
+  olaf:{name:'Ярл Олаф',faction:'nord',home:'tihr',personality:'honorable',title:'Ярл'},
+  sven:{name:'Ярл Свен',faction:'nord',home:'curaw',personality:'cunning',title:'Ярл'},
+  knut:{name:'Ярл Кнут',faction:'nord',home:'castle_nord',personality:'honorable',title:'Ярл'},
+  sanjar:{name:'Хан Санджар',faction:'khergit',home:'tulga',personality:'cunning',title:'Хан'},
+  temuchin:{name:'Темучин',faction:'khergit',home:'tulga',personality:'cruel',title:'Нойон'},
+  borte:{name:'Бортэ',faction:'khergit',home:'tulga',personality:'honorable',title:'Хатун'},
+  yesugai:{name:'Есугай',faction:'khergit',home:'castle_khergit',personality:'cunning',title:'Нойон'}
+};
+const LADIES={elenia:{name:'Леди Эления',loc:'castle'},mirabel:{name:'Мирабель',loc:'tihr'},aigul:{name:'Айгуль',loc:'tulga'}};
+const BOSSES={
+  wolf:{name:'🐺 Волчий Король',loc:'forest',power:25,gold:200,fame:15},
+  undead:{name:'💀 Король Мёртвых',loc:'ruins',power:50,gold:400,fame:25},
+  bandit_king:{name:'👑 Король Бандитов',loc:'bandit_camp',power:40,gold:300,fame:20}
+};
+
+const LOC_POS={
+  v_svadia:{x:28,y:72},v_svadia2:{x:38,y:80},v_nord:{x:12,y:18},v_nord2:{x:22,y:12},
+  v_khergit:{x:80,y:18},v_neutral:{x:50,y:70},
+  praven:{x:22,y:55},uxkhal:{x:35,y:48},veluca:{x:48,y:52},
+  tihr:{x:10,y:32},curaw:{x:25,y:22},tulga:{x:72,y:28},
+  castle:{x:42,y:38},castle_nord:{x:18,y:38},castle_khergit:{x:65,y:38},castle_free:{x:55,y:58},
+  forest:{x:62,y:62},ruins:{x:78,y:78},bandit_camp:{x:85,y:45},monastery:{x:60,y:75}
+};
+const ROADS=[
+  ['v_svadia','praven'],['v_svadia','uxkhal'],['v_svadia','forest'],['v_svadia2','uxkhal'],['v_svadia2','v_neutral'],
+  ['v_nord','tihr'],['v_nord','curaw'],['v_nord2','curaw'],['v_khergit','tulga'],
+  ['praven','uxkhal'],['praven','tihr'],['praven','castle'],['uxkhal','castle'],['uxkhal','veluca'],
+  ['veluca','castle_free'],['veluca','forest'],['tihr','curaw'],['tihr','castle_nord'],
+  ['curaw','castle_nord'],['tulga','castle_khergit'],['tulga','forest'],['tulga','bandit_camp'],
+  ['castle','castle_khergit'],['castle','forest'],['castle_nord','castle'],
+  ['castle_khergit','forest'],['forest','ruins'],['forest','bandit_camp'],['forest','monastery'],
+  ['ruins','bandit_camp'],['bandit_camp','tulga'],['monastery','v_svadia2'],['v_neutral','monastery']
+];
+
+const PROD={
+  praven:{grain:10,iron:2},uxkhal:{salt:5,fur:3},veluca:{fur:6,grain:3},
+  tihr:{fur:6,iron:4},curaw:{iron:8,grain:2},tulga:{iron:8,salt:2}
+};
+
+function makeVillage(faction){
+  return {name:`🌾 ${faction?FACTIONS[faction].name:'Нейтр.'} деревня`,faction,village:true,
+    desc:`Деревня${faction?' в землях '+FACTIONS[faction].name:''}.`,
+    actions:[
+      {label:'Нанять ополченца (5)',need:()=>S.gold>=5,run:()=>{S.gold-=5;S.troops.infantry++;log('+1 ополченец','good')}},
+      {label:'Купить еды (10)',need:()=>S.gold>=10,run:()=>{S.gold-=10;S.food+=10;log('+10 еды','good')}},
+      {label:'Работать в поле',run:()=>{S.gold+=15;S.food+=5;addXP(3);log('+15 зол., +5 еды','good');passDay()}},
+      {label:'🏗 Улучшения',run:()=>openVillageUpgrades(S.loc)},
+      {label:'🔥 Разграбить',run:raidVillage},
+      {label:'💬 Настоятель',run:()=>startDialogue('priest')}
+    ]}
+}
+function makeTown(faction){
+  return {name:`🏛 ${FACTIONS[faction].name}`,faction,town:null,
+    desc:`Город ${FACTIONS[faction].name}.`,
+    actions:[
+      {label:'📦 Торговля',run:()=>openMarket(S.loc)},
+      {label:'⚒ Кузнец',run:openBlacksmith},
+      {label:'🍺 Таверна',run:openTavern},
+      {label:'🐫 Караван',run:()=>openCaravan(S.loc)},
+      {label:'🏭 Мастерская',run:()=>openWorkshop(S.loc)},
+      {label:'🏛 Гильдия',run:()=>openGuild(faction)},
+      {label:'💬 Купец',run:()=>startDialogue('merchant',S.loc)},
+      {label:'💬 Лорд',run:()=>{const ll=lordsAt(S.loc);if(ll.length)openLordDialogue(ll[0])}}
+    ]}
+}
+function makeCastle(faction){
+  return {name:`🏰 Замок`,faction,castle:true,desc:`Замок${faction?' '+FACTIONS[faction].name:''}.`,
+    actions:[
+      {label:'💬 Лорд',run:()=>{const ll=lordsAt(S.loc);if(ll.length)openLordDialogue(ll[0])}},
+      {label:'📜 Доска наград',run:openBountyBoard},
+      {label:'Задание (1 день)',run:()=>{const r=40+Math.floor(Math.random()*60);S.gold+=r;S.fame+=3;addXP(8);log(`+${r} зол., +3 славы`,'good');passDay()}},
+      {label:'🏆 Турнир (20)',need:()=>S.gold>=20,run:tournament},
+      {label:'🤝 Присягнуть',run:openLiege}
+    ]}
+}
+
+const LOCS={
+  v_svadia:makeVillage('svadia'),v_svadia2:makeVillage('svadia'),
+  v_nord:makeVillage('nord'),v_nord2:makeVillage('nord'),
+  v_khergit:makeVillage('khergit'),v_neutral:makeVillage(null),
+  praven:makeTown('svadia'),uxkhal:makeTown('svadia'),veluca:makeTown('svadia'),
+  tihr:makeTown('nord'),curaw:makeTown('nord'),tulga:makeTown('khergit'),
+  castle:makeCastle('svadia'),castle_nord:makeCastle('nord'),
+  castle_khergit:makeCastle('khergit'),castle_free:makeCastle(null),
+  forest:{name:'🌲 Лес',faction:null,desc:'Тёмный лес.',actions:[
+    {label:'Охота',run:()=>{const f=10+Math.floor(Math.random()*15);S.food+=f;addXP(3);log(`+${f} еды`,'good');passDay()}},
+    {label:'Атаковать разбойников',run:()=>{const e=3+Math.floor(Math.random()*6);startBattle(e,15*e,'Разбойники','bandits')}},
+    {label:'🐺 Волчий Король',run:()=>fightBoss('wolf')}
+  ]},
+  ruins:{name:'🏚 Руины',faction:null,desc:'Древние развалины.',actions:[
+    {label:'Обыскать',run:()=>{const r=Math.random();if(r<.4){const g=20+Math.floor(Math.random()*40);S.gold+=g;addXP(5);log(`+${g} зол.`,'good');passDay()}else if(r<.7){addXP(2);log('Пусто','info');passDay()}else{log('Скелеты!','bad');startBattle(5+Math.floor(Math.random()*5),30,'Скелеты','undead')}}},
+    {label:'💀 Король Мёртвых',run:()=>fightBoss('undead')}
+  ]},
+  bandit_camp:{name:'⚔ Лагерь',faction:null,desc:'Логово бандитов.',actions:[
+    {label:'Напасть',run:()=>startBattle(8+Math.floor(Math.random()*6),70,'Главарь','chief')},
+    {label:'👑 Король',run:()=>fightBoss('bandit_king')}
+  ]},
+  monastery:{name:'⛪ Монастырь',faction:null,desc:'Тихий монастырь.',actions:[
+    {label:'💬 Настоятель',run:()=>startDialogue('priest')},
+    {label:'Пожертвовать 50 (+5 славы)',need:()=>S.gold>=50,run:()=>{S.gold-=50;S.fame+=5;log('+5 славы','good')}},
+    {label:'Молиться (1 день)',run:()=>{S.morale=Math.min(100,S.morale+10);addXP(5);log('+10 духа','good');passDay()}}
+  ]}
+};
+Object.keys(PROD).forEach(k=>LOCS[k].town=k);
+
+// ============ КВЕСТЫ ============
+const QUESTS=[
+  {desc:'Наймите 5 воинов',check:()=>totalTroops()>=5,reward:{gold:50}},
+  {desc:'Победите в 3 боях',check:()=>S.battlesWon>=3,reward:{gold:100,xp:20}},
+  {desc:'Купите оружие',check:()=>S.weapon!=='fists',reward:{gold:80}},
+  {desc:'30 славы',check:()=>S.fame>=30,reward:{gold:150,xp:30}},
+  {desc:'Вступите в гильдию',check:()=>S.guild,reward:{gold:100}},
+  {desc:'Присягните фракции',check:()=>S.liege,reward:{gold:200}},
+  {desc:'Захватите город',check:()=>S.ownsTown.length>0,reward:{gold:300}},
+  {desc:'Победите босса',check:()=>S.bossesKilled>=1,reward:{gold:200,xp:40}},
+  {desc:'Женитесь',check:()=>S.wife,reward:{gold:400,xp:50}},
+  {desc:'100 славы — лорд!',check:()=>S.fame>=100,reward:{gold:500}}
+];
+const STORY_QUESTS={
+  svadia:[
+    {desc:'Очистите лес (3 боя)',check:()=>S.battlesWon>=3,reward:{gold:300,rep:10,rel:{derick:15}}},
+    {desc:'Присягните и захватите город',check:()=>S.liege==='svadia'&&S.ownsTown.length>0,reward:{gold:500,fame:20}}
+  ],
+  nord:[
+    {desc:'20 воинов',check:()=>totalTroops()>=20,reward:{gold:300,rep:10,rel:{olaf:15}}},
+    {desc:'Присягните и победите босса',check:()=>S.liege==='nord'&&S.bossesKilled>=1,reward:{gold:500,fame:20}}
+  ],
+  khergit:[
+    {desc:'3 каравана',check:()=>S.caravansDone>=3,reward:{gold:300,rep:10,rel:{borte:15}}},
+    {desc:'Присягните и женитесь',check:()=>S.liege==='khergit'&&S.wife,reward:{gold:500,fame:20}}
+  ]
+};
+
+// ============ СОСТОЯНИЕ ============
+function defaultState(){return{
+  day:1,gold:100,food:50,fame:0,loc:'v_svadia',won:false,
+  playerPos:{x:28,y:72},moving:false,
+  troops:{infantry:10,cavalry:0},goods:{grain:0,salt:0,fur:0,iron:0},
+  xp:0,level:1,str:0,agi:0,int:0,
+  weapon:'fists',armor:'none',horse:'none',helmet:'none',boots:'none',ring:'none',
+  companions:[],rep:{svadia:0,nord:0,khergit:0},questStep:0,morale:100,
+  prisoner:false,ransom:0,battlesWon:0,chiefsKilled:0,bossesKilled:0,
+  ownsTown:[],wife:null,courtship:{},caravan:null,dialogState:null,
+  guild:null,liege:null,
+  lordsRel:{},lordTask:null,garrisons:{},banner:{bg:'#f0c060',icon:'⚔'},
+  prisoners:[],story:{svadia:0,nord:0,khergit:0},storyTask:null,
+  banditsKilled:0,caravansDone:0,compQuests:{},raidedVillages:[],
+  manhunterBounty:0,lastFeast:0,feastLoc:null,
+  workshops:{},order:null,orderRank:-1,feastsVisited:0,
+  thievesJoined:false,thiefRep:0,thiefContract:null,
+  compChain:{},stolenGoods:{grain:0,salt:0,fur:0,iron:0},
+  siegeSetup:null,villageUpgrades:{},bounty:null,
+  weather:'clear',weatherEnd:0
+}}
+function defaultWorld(){
+  const towns={};
+  Object.keys(PROD).forEach(k=>{
+    const fac=LOCS[k].faction;
+    const lord=Object.keys(LORDS).find(id=>LORDS[id].home===k);
+    towns[k]={faction:fac,prosperity:60+Math.floor(Math.random()*15),
+      garrison:30+Math.floor(Math.random()*15),lord,
+      stock:{grain:50,salt:20,fur:10,iron:15}};
+  });
+  return{day:1,towns,wars:[],prices:{grain:1,salt:1,fur:1,iron:1},
+    lastNews:'Мир тих...',armies:[]}
+}
+let S=defaultState();
+let W=defaultWorld();
+
+// ============ ХЕЛПЕРЫ ============
+function totalTroops(){return S.troops.infantry+S.troops.cavalry}
+function power(){
+  let b=S.troops.infantry+S.troops.cavalry*2.5;
+  b+=WEAPONS[S.weapon].atk*.8+ARMORS[S.armor].def*.4+HELMETS[S.helmet].def*.3;
+  if(S.order&&S.orderRank>=1)b+=2*S.orderRank;
+  b+=HORSES[S.horse].bonus*S.troops.cavalry;
+  b*=1+S.str*.05+S.agi*.02;
+  if(S.companions.includes('gareth'))b*=1.2;
+  b*=1+S.fame/200+RINGS[S.ring].fame/100;
+  return b
+}
+function casualtyMod(){let m=1;if(S.companions.includes('tobias'))m*=.7;m*=Math.max(.5,1-S.agi*.03-BOOTS[S.boots].agi*.02);return m}
+function sellMod(){let m=1;if(S.companions.includes('ali'))m*=1.2;if(S.guild)m*=1.1;return m}
+function fameMod(){return S.companions.includes('isolde')?1.3:1}
+function gainRep(f,a){if(!f)return;S.rep[f]=Math.max(-100,Math.min(100,(S.rep[f]||0)+a))}
+function gainRel(lid,a){S.lordsRel[lid]=Math.max(-50,Math.min(100,(S.lordsRel[lid]||0)+a))}
+function getSeason(){const d=(S.day-1)%360;return d<90?'spring':d<180?'summer':d<270?'autumn':'winter'}
+function seasonName(s){return{spring:'Весна',summer:'Лето',autumn:'Осень',winter:'Зима'}[s]}
+function addXP(a){S.xp+=a;while(S.xp>=S.level*20){S.xp-=S.level*20;S.level++;const st=['str','agi','int'][Math.floor(Math.random()*3)];S[st]+=2;log(`⬆ Ур.${S.level}! +2 к ${st}`,'good')}}
+function log(m,t='info'){
+  const el=document.getElementById('log');
+  const e=document.createElement('div');
+  e.className='entry '+t;
+  e.textContent=`[Д${S.day}] ${m}`;
+  el.prepend(e);
+  while(el.children.length>40)el.lastChild.remove()
+}
+function dist(a,b){return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2)}
+function lordsAt(loc){return Object.keys(LORDS).filter(id=>LORDS[id].home===loc)}
+function floatText(text,color='good'){
+  const el=document.createElement('div');
+  el.className='float-text '+color;
+  el.textContent=text;
+  const r=document.querySelector('.map-wrap').getBoundingClientRect();
+  el.style.left=(r.left+r.width/2-30)+'px';
+  el.style.top=(r.top+r.height/2)+'px';
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),1200)
+}
+
+// ============ ЭКОНОМИКА ============
+function getPrice(locKey,good){
+  const t=W.towns[locKey];if(!t||!t.stock)return BASE_PRICE[good];
+  const stock=t.stock[good]||0;const target=TARGET_STOCK[good];
+  const factor=1+(target-stock)/target*.8;
+  return Math.round(BASE_PRICE[good]*Math.max(.3,Math.min(2.2,factor))*(W.prices[good]||1))
+}
+function getSellPrice(locKey,good){return Math.floor(getPrice(locKey,good)*.6*sellMod())}
+function economicTick(){
+  Object.keys(W.towns).forEach(k=>{
+    const t=W.towns[k];if(!t.stock)return;
+    const prod=PROD[k]||{};
+    Object.keys(t.stock).forEach(g=>{
+      const produced=prod[g]||0;const consumed=g==='grain'?4:g==='salt'?2:1;
+      const bonusProd=g==='grain'?villageBonus('mill'):0;
+      t.stock[g]+=produced+bonusProd-consumed;
+      const target=TARGET_STOCK[g];
+      t.stock[g]+=(target-t.stock[g])*.03;
+      t.stock[g]=Math.max(0,Math.min(target*2.5,t.stock[g]))
+    });
+    const wellBonus=villageBonus('well');
+    if(wellBonus&&t.prosperity<90)t.prosperity+=wellBonus*0.05
+  })
+}
+function villageBonus(type){
+  let count=0;
+  Object.keys(S.villageUpgrades).forEach(k=>{
+    if(S.villageUpgrades[k][type]){
+      const vp=LOC_POS[k];if(!vp)return;
+      let nearest=null,bestDist=999;
+      Object.keys(W.towns).forEach(t=>{
+        const tp=LOC_POS[t];const d=dist(vp,tp);
+        if(d<bestDist){bestDist=d;nearest=t}
+      });
+      if(nearest&&bestDist<25)count++
+    }
+  });
+  return count
+}
+
+// ============ КАРТА: декорации ============
+function generateTerrain(){
+  const terrain=document.getElementById('terrainLayer');
+  const decor=document.getElementById('decorLayer');
+  if(!terrain||!decor)return;
+  terrain.innerHTML='';
+  decor.innerHTML='';
+  const svgNS='http://www.w3.org/2000/svg';
+  
+  // Реки
+  const rivers=[
+    {d:'M 15 20 Q 25 35 30 50 T 40 75 T 55 95',color:'#3a5a7a',w:1.5},
+    {d:'M 70 15 Q 75 30 72 45 T 65 70',color:'#3a5a7a',w:1}
+  ];
+  rivers.forEach(r=>{
+    const path=document.createElementNS(svgNS,'path');
+    path.setAttribute('d',r.d);path.setAttribute('stroke',r.color);
+    path.setAttribute('stroke-width',r.w);path.setAttribute('fill','none');
+    path.setAttribute('opacity','0.5');
+    terrain.appendChild(path)
+  });
+  
+  // Горы — треугольники на краях
+  const mountains=[
+    {x:5,y:5},{x:8,y:10},{x:3,y:12},{x:95,y:8},{x:92,y:14},{x:97,y:20},
+    {x:5,y:88},{x:8,y:92},{x:3,y:95},{x:92,y:90},{x:96,y:85}
+  ];
+  mountains.forEach(m=>{
+    const t=document.createElementNS(svgNS,'polygon');
+    const s=3+Math.random()*2;
+    t.setAttribute('points',`${m.x},${m.y} ${m.x-s},${m.y+s*1.5} ${m.x+s},${m.y+s*1.5}`);
+    t.setAttribute('fill','#4a3a2a');t.setAttribute('stroke','#2a1f15');t.setAttribute('stroke-width','.2');
+    terrain.appendChild(t)
+  });
+  
+  // Деревья — маленькие треугольники в лесных зонах
+  const treeZones=[
+    {x:58,y:55,r:12},{x:68,y:68,r:10},{x:82,y:38,r:8},
+    {x:15,y:15,r:8},{x:75,y:22,r:7},{x:45,y:82,r:6},
+    {x:5,y:75,r:6},{x:88,y:88,r:7},{x:35,y:15,r:5}
+  ];
+  treeZones.forEach(z=>{
+    for(let i=0;i<8;i++){
+      const angle=Math.random()*Math.PI*2;
+      const radius=Math.random()*z.r;
+      const x=z.x+Math.cos(angle)*radius;
+      const y=z.y+Math.sin(angle)*radius;
+      if(x<2||x>98||y<2||y>98)continue;
+      const t=document.createElementNS(svgNS,'polygon');
+      const s=0.8+Math.random()*0.5;
+      t.setAttribute('points',`${x},${y} ${x-s},${y+s*2} ${x+s},${y+s*2}`);
+      const green=Math.random()<.5?'#2a4a2a':'#3a5a3a';
+      t.setAttribute('fill',green);t.setAttribute('opacity',.7);
+      decor.appendChild(t)
+    }
+  });
+  
+  // Облака — будут анимированы через CSS
+  const clouds=document.getElementById('cloudsLayer');
+  if(clouds){
+    clouds.innerHTML='';
+    for(let i=0;i<5;i++){
+      const e=document.createElementNS(svgNS,'ellipse');
+      e.setAttribute('cx',Math.random()*100);
+      e.setAttribute('cy',5+Math.random()*30);
+      e.setAttribute('rx',8+Math.random()*6);
+      e.setAttribute('ry',3+Math.random()*2);
+      e.setAttribute('fill','#fff');
+      clouds.appendChild(e)
+    }
+  }
+}
+
+let cloudOffset=0;
+function animateClouds(){
+  const clouds=document.getElementById('cloudsLayer');
+  if(!clouds)return;
+  cloudOffset+=0.02;
+  if(cloudOffset>100)cloudOffset=0;
+  Array.from(clouds.children).forEach((c,i)=>{
+    const baseCx=(i*20)%100;
+    const newCx=(baseCx+cloudOffset)%100;
+    c.setAttribute('cx',newCx)
+  })
+}
+
+// ============ ПОГОДА ============
+function updateWeather(){
+  const season=getSeason();
+  const weatherLayer=document.getElementById('weatherLayer');
+  if(!weatherLayer)return;
+  weatherLayer.innerHTML='';
+  // Решаем, будет ли погода
+  if(season==='winter'&&Math.random()<.6){
+    S.weather='snow';
+    for(let i=0;i<40;i++){
+      const f=document.createElement('div');
+      f.className='snow-flake';
+      f.style.left=Math.random()*100+'%';
+      f.style.top=-(Math.random()*260)+'px';
+      f.style.animationDelay=Math.random()*4+'s';
+      f.style.opacity=0.4+Math.random()*0.6;
+      weatherLayer.appendChild(f)
+    }
+  }else if((season==='autumn'||season==='spring')&&Math.random()<.5){
+    S.weather='rain';
+    for(let i=0;i<50;i++){
+      const d=document.createElement('div');
+      d.className='rain-drop';
+      d.style.left=Math.random()*100+'%';
+      d.style.top=-(Math.random()*260)+'px';
+      d.style.animationDelay=Math.random()+'s';
+      weatherLayer.appendChild(d)
+    }
+  }else{
+    S.weather='clear'
+  }
+}
+
+// ============ ДЕНЬ/НОЧЬ ============
+function updateDayNight(){
+  const layer=document.getElementById('daynightLayer');
+  if(!layer)return;
+  const phase=(S.day%24)/24;
+  layer.className='';
+  if(phase>=0.15&&phase<0.25)layer.classList.add('dusk');
+  else if(phase>=0.25&&phase<0.6)layer.classList.add('night');
+  else if(phase>=0.6&&phase<0.7)layer.classList.add('dawn')
+}
+
+// ============ АРМИИ ============
+const ARMY_ROUTES=[
+  {faction:'svadia',route:['praven','uxkhal','castle'],strength:50},
+  {faction:'svadia',route:['uxkhal','v_svadia','praven'],strength:35},
+  {faction:'svadia',route:['veluca','castle_free','v_svadia2'],strength:40},
+  {faction:'nord',route:['tihr','praven'],strength:45},
+  {faction:'nord',route:['curaw','tihr','v_nord'],strength:40},
+  {faction:'khergit',route:['tulga','forest','bandit_camp'],strength:45},
+  {faction:'khergit',route:['tulga','v_khergit'],strength:30},
+  {faction:'bandits',route:['forest','ruins','bandit_camp'],strength:20},
+  {faction:'bandits',route:['bandit_camp','forest'],strength:18},
+  {faction:'manhunters',route:['praven','castle','uxkhal'],strength:30}
+];
+
+function initArmies(){
+  if(W.armies.length>0)return;
+  ARMY_ROUTES.forEach((cfg,i)=>{
+    const st=LOC_POS[cfg.route[0]];
+    W.armies.push({id:'a'+i,faction:cfg.faction,route:cfg.route,routeIdx:0,
+      x:st.x,y:st.y,targetLoc:cfg.route[1]||cfg.route[0],strength:cfg.strength,paused:0,dead:false})
+  })
+}
+
+// ============ ИГРОВОЙ ЦИКЛ (RAF) ============
+let rafId=null;
+let lastArmyTick=0;
+let armyDelta=0;
+function gameLoop(timestamp){
+  rafId=requestAnimationFrame(gameLoop);
+  const dt=timestamp-lastArmyTick;
+  if(dt>=66){
+    lastArmyTick=timestamp;
+    armyTick();
+    animateClouds()
+  }
+  // Обновление DOM армий через RAF
+  updateArmyDOM();
+}
+
+function armyTick(){
+  W.armies.forEach(a=>{
+    if(a.dead)return;
+    if(a.paused>0){a.paused--;return}
+    const t=LOC_POS[a.targetLoc];if(!t)return;
+    const dx=t.x-a.x,dy=t.y-a.y,d=Math.sqrt(dx*dx+dy*dy);
+    if(d<.6){
+      a.x=t.x;a.y=t.y;
+      if(a.faction!=='bandits'&&a.faction!=='manhunters'&&LOCS[a.targetLoc]?.faction===a.faction)a.paused=20;
+      a.routeIdx=(a.routeIdx+1)%a.route.length;
+      a.targetLoc=a.route[a.routeIdx]
+    }else{
+      a.x+=dx/d*.6;a.y+=dy/d*.6
+    }
+  });
+  // Бои
+  for(let i=0;i<W.armies.length;i++){
+    const a=W.armies[i];if(a.dead)continue;
+    for(let j=i+1;j<W.armies.length;j++){
+      const b=W.armies[j];if(b.dead)continue;
+      if(a.faction===b.faction||!isAtWar(a.faction,b.faction))continue;
+      if(dist(a,b)<3){
+        if(a.strength>b.strength){b.strength-=5;if(b.strength<=0)b.dead=true}
+        else{a.strength-=5;if(a.strength<=0)a.dead=true}
+      }
+    }
+  }
+  // Встреча с игроком
+  if(!S.moving&&!S.prisoner&&!S.dialogState&&!document.getElementById('modal').classList.contains('show')){
+    for(const a of W.armies){
+      if(a.dead)continue;
+      if(dist(S.playerPos,a)<4){
+        if(a.faction==='bandits'||a.faction==='manhunters'||(S.liege&&isAtWar(S.liege,a.faction))){
+          encounterArmy(a);break
+        }
+      }
+    }
+  }
+}
+
+function isAtWar(f1,f2){
+  if(f1===f2)return false;
+  if(f1==='bandits'||f2==='bandits')return true;
+  if(f1==='manhunters'&&S.manhunterBounty>0)return true;
+  return W.wars.some(w=>(w.a===f1&&w.b===f2)||(w.a===f2&&w.b===f1))
+}
+
+// ДОМ обновление с кэшем
+let domCache={armies:{},player:null,caravan:null};
+function updateArmyDOM(){
+  const wrap=document.getElementById('mapWrap');
+  if(!wrap)return;
+  const layer=document.getElementById('armiesLayer');
+  const Wp=wrap.clientWidth,H=wrap.clientHeight;
+  const pad=16;
+  // Армии
+  W.armies.forEach(a=>{
+    let el=domCache.armies[a.id];
+    if(a.dead){
+      if(el&&el.parentNode)el.remove();
+      delete domCache.armies[a.id];
+      return
+    }
+    if(!el){
+      el=document.createElement('div');
+      el.id='army_'+a.id;el.className='map-army faction-'+a.faction;
+      layer.appendChild(el);
+      domCache.armies[a.id]=el
+    }
+    const px=(a.x/100)*(Wp-pad*2)+pad;
+    const py=(a.y/100)*(H-pad*2)+pad;
+    el.textContent=a.strength;
+    el.style.transform=`translate(${px-11}px,${py-11}px)`
+  });
+  // Игрок
+  if(!domCache.player){
+    const p=document.createElement('div');
+    p.className='map-player';
+    layer.appendChild(p);
+    domCache.player=p
+  }
+  domCache.player.textContent=S.banner.icon;
+  domCache.player.style.background=S.banner.bg;
+  const px=(S.playerPos.x/100)*(Wp-pad*2)+pad;
+  const py=(S.playerPos.y/100)*(H-pad*2)+pad;
+  domCache.player.style.transform=`translate(${px-11}px,${py-11}px)`;
+  // Караван
+  if(S.caravan&&S.caravan.pos){
+    if(!domCache.caravan){
+      const c=document.createElement('div');
+      c.className='map-caravan';c.textContent='🐫';
+      layer.appendChild(c);
+      domCache.caravan=c
+    }
+    const cx=(S.caravan.pos.x/100)*(Wp-pad*2)+pad;
+    const cy=(S.caravan.pos.y/100)*(H-pad*2)+pad;
+    domCache.caravan.style.transform=`translate(${cx-11}px,${cy-11}px)`
+  }else if(domCache.caravan){
+    if(domCache.caravan.parentNode)domCache.caravan.remove();
+    domCache.caravan=null
+  }
+  // Миникарта — троттлинг
+  const now=Date.now();
+  if(now-lastMiniUpdate>200){
+    updateMinimap();
+    lastMiniUpdate=now
+  }
+}
+
+let lastMiniUpdate=0;
+function updateMinimap(){
+  const dots=document.getElementById('miniDots');if(!dots)return;
+  let html='';
+  Object.keys(LOC_POS).forEach(k=>{
+    const p=LOC_POS[k];
+    const isCur=k===S.loc;
+    const isOwned=LOCS[k].town&&S.ownsTown.includes(LOCS[k].town);
+    const color=isCur?'#f0c060':isOwned?'#90e090':LOCS[k].town?'#8b6f47':LOCS[k].village?'#5a7a3a':'#3a3a3a';
+    html+=`<circle cx="${p.x}" cy="${p.y}" r="${isCur?2.2:1.4}" fill="${color}"/>`
+  });
+  W.armies.forEach(a=>{
+    if(a.dead)return;
+    if(dist(S.playerPos,a)>35)return;
+    const color=a.faction==='bandits'?'#e09090':a.faction==='manhunters'?'#c0a040':a.faction==='svadia'?'#c08040':a.faction==='nord'?'#4080c0':'#80a040';
+    html+=`<circle cx="${a.x}" cy="${a.y}" r="1" fill="${color}"/>`
+  });
+  html+=`<circle cx="${S.playerPos.x}" cy="${S.playerPos.y}" r="2" fill="#fff" stroke="#000" stroke-width=".4"/>`;
+  dots.innerHTML=html
+}
+
+function encounterArmy(a){
+  if(a.faction==='manhunters'&&S.manhunterBounty<=0)return;
+  const label=a.faction==='bandits'?'Бандиты':a.faction==='manhunters'?'Охотники':(FACTIONS[a.faction]?.name||'?');
+  showModal(`⚔ ${label}`, [
+    {label:`⚔ Атаковать (${a.strength})`,sub:`~${a.strength*3} зол.`,run:()=>resolveArmyBattle(a)},
+    {label:'🏳 Уйти',run:()=>{a.paused=30;log('Ушли','info')}}
+  ])
+}
+function resolveArmyBattle(a){
+  const my=power(),en=a.strength*1.2;
+  if(my+Math.random()*5>en+Math.random()*5){
+    const gold=a.strength*3;S.gold+=gold;S.fame+=Math.floor(a.strength/4);
+    if(a.faction==='bandits')S.banditsKilled+=a.strength;
+    if(a.faction!=='bandits'&&a.faction!=='manhunters'&&Math.random()<.4){
+      const facLords=Object.keys(LORDS).filter(id=>LORDS[id].faction===a.faction&&!S.prisoners.some(p=>p.lord===id));
+      if(facLords.length>0){const cap=facLords[Math.floor(Math.random()*facLords.length)];const ransom=LORDS[cap].king?800:400;S.prisoners.push({lord:cap,ransom});log(`⛓ Пленён ${LORDS[cap].name}!`,'good')}
+    }
+    a.dead=true;S.battlesWon++;addXP(15+a.strength);
+    floatText(`+${gold} зол.`,'gold');
+    log(`⚔ Победа! +${gold} зол.`,'good');checkVictory()
+  }else{
+    const loss=Math.max(1,Math.floor(totalTroops()*.3));S.troops.infantry=Math.max(1,S.troops.infantry-loss);S.morale=Math.max(0,S.morale-10);
+    a.strength-=Math.floor(my/2);if(a.strength<1)a.dead=true;
+    floatText(`-${loss} воинов`,'bad');
+    log(`💀 Поражение! -${loss}`,'bad')
+  }
+  save();render()
+}
+
+function renderMapBase(){
+  const r=document.getElementById('roadsLayer'),l=document.getElementById('locsLayer');
+  if(!r||!l)return;
+  r.innerHTML='';l.innerHTML='';
+  ROADS.forEach(([a,b])=>{
+    const pa=LOC_POS[a],pb=LOC_POS[b];if(!pa||!pb)return;
+    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',pa.x);line.setAttribute('y1',pa.y);
+    line.setAttribute('x2',pb.x);line.setAttribute('y2',pb.y);
+    r.appendChild(line)
+  });
+  Object.keys(LOC_POS).forEach(k=>{
+    const p=LOC_POS[k];
+    const isTown=LOCS[k].town;
+    const isCastle=LOCS[k].castle;
+    const isVillage=LOCS[k].village;
+    const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx',p.x);c.setAttribute('cy',p.y);
+    c.setAttribute('r',isTown||isCastle?3:2);
+    c.setAttribute('fill',isTown?'#a06030':isCastle?'#805040':isVillage?'#5a7030':'#4a4a4a');
+    c.setAttribute('stroke','#f0c060');c.setAttribute('stroke-width','.5');
+    l.appendChild(c);
+    if(isTown||isCastle){
+      const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x',p.x);t.setAttribute('y',p.y-5);
+      t.setAttribute('text-anchor','middle');
+      t.setAttribute('font-size','2.8');t.setAttribute('fill','#d4a574');
+      t.setAttribute('font-family','Georgia');
+      t.textContent=LOCS[k].name.replace(/[🏘🏛🏰🌾⛪🌲🏚⚔🌍]/g,'').trim().split(' ').slice(0,1).join('');
+      l.appendChild(t)
+    }
+  })
+}
+
+// ============ УЛУЧШЕНИЯ ДЕРЕВЕНЬ ============
+function openVillageUpgrades(locKey){
+  if(!S.villageUpgrades[locKey])S.villageUpgrades[locKey]={mill:false,well:false,tower:false};
+  const u=S.villageUpgrades[locKey];
+  const opts=[];
+  if(!u.mill)opts.push({label:'🌾 Мельница (300)',sub:'+10% производства зерна',need:()=>S.gold>=300,keepOpen:true,run:()=>{S.gold-=300;u.mill=true;log('🌾 Мельница','good');addXP(15);save();openVillageUpgrades(locKey)}});
+  else opts.push({label:'✅ Мельница',run:()=>{}});
+  if(!u.well)opts.push({label:'💧 Колодец (200)',sub:'+5% prosperity',need:()=>S.gold>=200,keepOpen:true,run:()=>{S.gold-=200;u.well=true;log('💧 Колодец','good');addXP(10);save();openVillageUpgrades(locKey)}});
+  else opts.push({label:'✅ Колодец',run:()=>{}});
+  if(!u.tower)opts.push({label:'🗼 Башня (400)',sub:'Защищает от разграбления',need:()=>S.gold>=400,keepOpen:true,run:()=>{S.gold-=400;u.tower=true;log('🗼 Башня','good');addXP(20);save();openVillageUpgrades(locKey)}});
+  else opts.push({label:'✅ Башня',run:()=>{}});
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal(`🏗 ${LOCS[locKey].name}`,opts)
+}
+
+// ============ ДОСКА НАГРАД ============
+function openBountyBoard(){
+  if(S.bounty){
+    const done=S.banditsKilled>=S.bounty.target;
+    showModal('📜 Доска наград', [
+      {label:`Убить ${S.bounty.initial||S.bounty.target} бандитов`,sub:`Готово: ${Math.min(S.banditsKilled,S.bounty.target)}. Награда: ${S.bounty.reward}`,run:()=>{}},
+      {label:done?'✅ Получить награду':'В процессе',need:()=>done,keepOpen:true,run:()=>{
+        S.gold+=S.bounty.reward;S.fame+=5;addXP(20);floatText(`+${S.bounty.reward} зол.`,'gold');
+        log(`📜 Награда: +${S.bounty.reward} зол.`,'good');S.bounty=null;hideModal();render()
+      }},
+      {label:'← Назад',run:()=>{}}
+    ]);return
+  }
+  const rewards=[{target:5,reward:80},{target:10,reward:180},{target:20,reward:400},{target:30,reward:700}];
+  const opts=rewards.map(r=>({
+    label:`Убить ${r.target} бандитов`,sub:`${r.reward} зол.`,
+    run:()=>{S.bounty={target:S.banditsKilled+r.target,reward:r.reward,initial:r.target};log(`📜 Задание`,'info');save();render()}
+  }));
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal('📜 Доска наград',opts)
+}
+
+// ============ РЫНОК ============
+function openMarket(locKey){
+  if(!W.towns[locKey]?.stock)return log('Нет рынка','bad');
+  const opts=[];
+  Object.keys(GOODS).forEach(g=>{
+    const bp=getPrice(locKey,g),sp=getSellPrice(locKey,g);
+    const stock=Math.floor(W.towns[locKey].stock[g]);
+    const target=TARGET_STOCK[g];
+    const status=stock<target*.5?'🔴':stock>target*1.5?'🟢':'🟡';
+    opts.push({label:`Купить ${GOODS[g].icon} (${bp})`,sub:`${status} Запас: ${stock}`,need:()=>S.gold>=bp,keepOpen:true,run:()=>{S.gold-=bp;S.goods[g]++;W.towns[locKey].stock[g]--;save();openMarket(locKey)}});
+    opts.push({label:`Продать ${GOODS[g].icon} (${sp})`,sub:`У вас: ${S.goods[g]}`,need:()=>S.goods[g]>0,keepOpen:true,run:()=>{S.gold+=sp;S.goods[g]--;W.towns[locKey].stock[g]++;save();openMarket(locKey)}})
+  });
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal('📦 Рынок',opts)
+}
+
+function openWorkshop(locKey){
+  if(S.workshops[locKey]){
+    const income=Math.floor(W.towns[locKey].prosperity*.05)+1;
+    showModal('🏭 Мастерская', [{label:'✅ Ваша',sub:`Доход: ~${income} зол./день`,run:()=>{}},{label:'← Назад',run:()=>{}}]);return
+  }
+  const income=Math.floor(W.towns[locKey].prosperity*.05)+1;
+  showModal('🏭 Мастерская', [
+    {label:'Построить (800)',sub:`Доход: ~${income}/день (окупится за ~${Math.ceil(800/income)} дн.)`,need:()=>S.gold>=800,run:()=>{
+      S.gold-=800;S.workshops[locKey]='workshop';log('🏭 Построена','good');addXP(20)
+    }},
+    {label:'← Назад',run:()=>{}}
+  ])
+}
+
+const ORDERS={
+  st_george:{name:'Орден Св. Георгия',faction:'svadia',desc:'Защита Свадии',
+    ranks:[{name:'Оруженосец',fame:0,reward:{gold:100}},{name:'Рыцарь',fame:30,reward:{gold:300}},{name:'Мастер',fame:70,reward:{gold:600}}]},
+  wolf:{name:'Орден Волка',faction:'nord',desc:'Сила Севера',
+    ranks:[{name:'Волчонок',fame:0,reward:{gold:100}},{name:'Воин Волка',fame:30,reward:{gold:300}},{name:'Серый Волк',fame:70,reward:{gold:600}}]}
+};
+function openOrders(){
+  if(S.order){
+    const ord=ORDERS[S.order];const rank=S.orderRank;const next=ord.ranks[rank+1];
+    showModal(`⚔ ${ord.name}`, [
+      {label:`Ранг: ${ord.ranks[rank].name}`,sub:ord.desc,run:()=>{}},
+      {label:next?`Повыситься до ${next.name}`:'Максимум',sub:next?`Нужно ${next.fame} славы (у вас ${S.fame})`:'—',need:()=>next&&S.fame>=next.fame,keepOpen:true,run:()=>{
+        S.orderRank++;S.gold+=next.reward.gold;S.fame+=5;log(`⚔ Повышение!`,'good');addXP(30)
+      }},
+      {label:'← Назад',run:()=>{}}
+    ]);return
+  }
+  const opts=Object.keys(ORDERS).map(k=>{
+    const o=ORDERS[k];const rep=S.rep[o.faction]||0;
+    return {label:o.name,sub:`${o.desc}. Реп: ${rep}/30`,need:()=>rep>=30,keepOpen:true,run:()=>{
+      S.order=k;S.orderRank=0;S.gold+=o.ranks[0].reward.gold;log(`⚔ Вступили в ${o.name}!`,'good');addXP(20)
+    }}
+  });
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal('⚔ Ордена',opts)
+}
+
+const THIEVES={
+  contracts:[
+    {desc:'Украсть 3 зерна в Правене',loc:'praven',good:'grain',qty:3,reward:{gold:80,rep:-3}},
+    {desc:'Украсть 2 меха в Тихре',loc:'tihr',good:'fur',qty:2,reward:{gold:120,rep:-5}},
+    {desc:'Украсть 3 железа в Тулаге',loc:'tulga',good:'iron',qty:3,reward:{gold:150,rep:-5}}
+  ]
+};
+function openThieves(){
+  if(!S.thievesJoined){
+    showModal('🗡 Гильдия воров', [
+      {label:'Вступить (300)',sub:'Доступ к контрактам',need:()=>S.gold>=300,run:()=>{S.gold-=300;S.thievesJoined=true;log('🗡 Вступили','good')}},
+      {label:'← Назад',run:()=>{}}
+    ]);return
+  }
+  const opts=[{label:`Репутация: ${S.thiefRep}`,run:()=>{}}];
+  if(S.thiefContract){
+    const c=THIEVES.contracts[S.thiefContract.idx];
+    const canDo=S.loc===c.loc;
+    opts.push({label:`Контракт: ${c.desc}`,sub:canDo?'✅ На месте':'❌ Не та локация',need:()=>canDo,run:()=>{
+      S.stolenGoods[c.good]+=c.qty;S.thiefRep+=5;S.thiefContract=null;
+      S.gold+=c.reward.gold;log('🗡 Контракт выполнен','good');save();render()
+    }})
+  }else{
+    const idx=Math.floor(Math.random()*THIEVES.contracts.length);
+    opts.push({label:`Новый контракт`,sub:`Награда: ${THIEVES.contracts[idx].reward.gold} зол.`,keepOpen:true,run:()=>{S.thiefContract={idx};save();openThieves()}})
+  }
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal('🗡 Гильдия воров',opts)
+}
+
+function openCompanionQuests(){
+  if(S.companions.length===0)return log('Нет спутников','info');
+  const opts=S.companions.map(k=>{
+    const c=COMPANIONS[k];const progress=S.compChain[k]||0;
+    const quest=c.questLine[progress];
+    if(!quest)return {label:`${c.name} — ✅ Все квесты`,run:()=>{}};
+    const done=quest.check();
+    return {label:`${c.name} (${progress+1}/3): ${quest.desc}`,sub:done?'✅':'В процессе',keepOpen:true,run:()=>{
+      if(done){
+        if(quest.consume)quest.consume();
+        if(quest.reward.gold)S.gold+=quest.reward.gold;
+        if(quest.reward.xp)addXP(quest.reward.xp);
+        if(quest.reward.fame)S.fame+=quest.reward.fame;
+        S.compChain[k]=progress+1;
+        if(progress+1>=c.questLine.length){const st=['str','agi','int'][Math.floor(Math.random()*3)];S[st]+=5;log(`✅ ${c.name}: все! +5 ${st}`,'good')}
+        else log(`✅ ${c.name}: квест готов`,'good');
+        save();render();openCompanionQuests()
+      }else log('Условия не выполнены','bad')
+    }}
+  });
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal('🤝 Квесты спутников',opts)
+}
+
+function lordGreet(id){
+  const L=LORDS[id];const rel=S.lordsRel[id]||0;
+  const mood=rel<0?'враждебно':rel<20?'холодно':rel<50?'ровно':rel<80?'тепло':'дружески';
+  const greet={
+    honorable:`${L.name}: «Приветствую, ${S.fame>50?'славный воин':'путник'}.»`,
+    cunning:`${L.name}: «А, это вы.»`,
+    cruel:`${L.name}: «Что тебе?»`
+  };
+  return `${greet[L.personality]}\n\nОтношение: ${mood} (${rel})`
+}
+function getLordTask(id){
+  if(!S.lordTask||S.lordTask.lord!==id){
+    const L=LORDS[id];
+    if(L.personality==='honorable')S.lordTask={lord:id,type:'deliver',good:'grain',qty:3,gold:80,rep:5,rel:8,desc:'Принеси 3 зерна'};
+    else if(L.personality==='cunning')S.lordTask={lord:id,type:'kill',target:S.banditsKilled+3,gold:120,rep:3,rel:5,desc:'Убей 3 разбойников'};
+    else S.lordTask={lord:id,type:'kill',target:S.banditsKilled+5,gold:180,rep:2,rel:3,desc:'Убей 5 разбойников'};
+    save()
+  }
+  return S.lordTask
+}
+function checkLordTask(){
+  if(!S.lordTask)return null;
+  const t=S.lordTask;
+  if(t.type==='deliver'&&S.goods[t.good]>=t.qty)return true;
+  if(t.type==='kill'&&S.banditsKilled>=t.target)return true;
+  return false
+}
+function openLordDialogue(id){
+  const L=LORDS[id];const rel=S.lordsRel[id]||0;
+  S.dialogState={lord:id};
+  const task=getLordTask(id);const taskDone=checkLordTask();
+  const opts=[
+    {label:'«Какие вести?»',keepOpen:true,run:()=>{
+      showModal(lordGreet(id)+`\n\n«${FACTIONS[L.faction].name}: ${W.wars.length===0?'мир':'война'}.»`,[
+        {label:'← Продолжить',keepOpen:true,run:()=>openLordDialogue(id)}
+      ])
+    }},
+    {label:taskDone?`✅ ${task.desc}`:`📜 ${task.desc}`,sub:taskDone?`+${task.gold} зол.`:'',keepOpen:true,run:()=>{
+      if(taskDone){
+        if(task.type==='deliver')S.goods[task.good]-=task.qty;
+        S.gold+=task.gold;gainRep(L.faction,task.rep);gainRel(id,task.rel);addXP(15);
+        log(`✅ Задание выполнено`,'good');S.lordTask=null;save();openLordDialogue(id)
+      }else showModal(`Задание: ${task.desc}`,[{label:'← Назад',keepOpen:true,run:()=>openLordDialogue(id)}])
+    }},
+    {label:'🎁 Подарок (50)',need:()=>S.gold>=50,keepOpen:true,run:()=>{S.gold-=50;gainRel(id,5);log('+5 отн.','good');openLordDialogue(id)}},
+    {label:'🗡 Присягнуть',condition:()=>!S.liege,keepOpen:true,run:()=>{if(rel>=20){S.liege=L.faction;gainRep(L.faction,20);log(`🤝 Присягнули!`,'good');addXP(15)}else log('Низкое отношение','bad');save();openLordDialogue(id)}},
+    {label:'← Уйти',run:()=>{hideModal();S.dialogState=null}}
+  ].filter(o=>o&&(!o.condition||o.condition()));
+  showModal(L.name,opts.map(o=>({...o,need:o.need||(()=>true)})))
+}
+
+function openPrisoners(){
+  if(S.prisoners.length===0)return log('Нет пленников','info');
+  const opts=S.prisoners.map((p,i)=>({
+    label:`⛓ ${LORDS[p.lord].name}`,sub:`Выкуп: ${p.ransom}`,keepOpen:true,
+    run:()=>{
+      showModal(LORDS[p.lord].name,[
+        {label:`💰 Выкуп (${p.ransom})`,keepOpen:true,run:()=>{S.gold+=p.ransom;S.prisoners.splice(i,1);log(`+${p.ransom}`,'good');hideModal();render();openPrisoners()}},
+        {label:`🕊 Отпустить (+15 реп.)`,keepOpen:true,run:()=>{gainRep(LORDS[p.lord].faction,15);gainRel(p.lord,20);S.prisoners.splice(i,1);log('Отпущен','good');hideModal();render();openPrisoners()}},
+        {label:'← Назад',keepOpen:true,run:openPrisoners}
+      ])
+    }
+  }));
+  opts.push({label:'← Закрыть',run:()=>{}});
+  showModal('⛓ Пленники',opts)
+}
+
+function openGarrison(townKey){
+  if(!S.ownsTown.includes(townKey))return;
+  if(!S.garrisons[townKey])S.garrisons[townKey]={infantry:0,cavalry:0};
+  const g=S.garrisons[townKey];
+  showModal(`🏰 Гарнизон`, [
+    {label:'Гарнизон',sub:`Пех: ${g.infantry}, Кав: ${g.cavalry}`,run:()=>{}},
+    {label:'⬇ 5 пех. →',need:()=>S.troops.infantry>5,keepOpen:true,run:()=>{S.troops.infantry-=5;g.infantry+=5;log('5→гарнизон','good');save();render();openGarrison(townKey)}},
+    {label:'⬆ 5 пех. ←',need:()=>g.infantry>=5,keepOpen:true,run:()=>{g.infantry-=5;S.troops.infantry+=5;log('5→армия','good');save();render();openGarrison(townKey)}},
+    {label:'⬇ 2 кав. →',need:()=>S.troops.cavalry>=2,keepOpen:true,run:()=>{S.troops.cavalry-=2;g.cavalry+=2;log('2→гарнизон','good');save();render();openGarrison(townKey)}},
+    {label:'⬆ 2 кав. ←',need:()=>g.cavalry>=2,keepOpen:true,run:()=>{g.cavalry-=2;S.troops.cavalry+=2;log('2→армия','good');save();render();openGarrison(townKey)}},
+    {label:'💰 +5 пех. (50)',need:()=>S.gold>=50,keepOpen:true,run:()=>{S.gold-=50;g.infantry+=5;log('+5 в гарнизон','good');save();render();openGarrison(townKey)}},
+    {label:'← Назад',run:()=>{}}
+  ])
+}
+
+function openSiege(townKey){
+  const town=W.towns[townKey];
+  if(!town||S.ownsTown.includes(townKey))return;
+  if(!S.siegeSetup||S.siegeSetup.target!==townKey)S.siegeSetup={target:townKey,ram:0,catapult:0,tower:0};
+  const s=S.siegeSetup;const bonus=(s.ram*.15+s.catapult*.25+s.tower*.4)*100;
+  showModal(`🏰 Осада ${LOCS[townKey].name}`, [
+    {label:'Инфо',sub:`Гарнизон: ${town.garrison}. Армия: ${Math.floor(power())}. Бонус: +${Math.round(bonus)}%`,run:()=>{}},
+    {label:'🪵 Таран (80, +15%)',need:()=>S.gold>=80&&s.ram<3,keepOpen:true,run:()=>{S.gold-=80;s.ram++;log('Таран','good');save();openSiege(townKey)}},
+    {label:'⚙ Катапульта (150, +25%)',need:()=>S.gold>=150&&s.catapult<2,keepOpen:true,run:()=>{S.gold-=150;s.catapult++;log('Катапульта','good');save();openSiege(townKey)}},
+    {label:'🗼 Башня (250, +40%)',need:()=>S.gold>=250&&s.tower<1,keepOpen:true,run:()=>{S.gold-=250;s.tower++;log('Башня','good');save();openSiege(townKey)}},
+    {label:'⚔ Штурм!',sub:`Бонус +${Math.round(bonus)}%`,run:()=>siegeBattle(townKey)},
+    {label:'🏳 Отступить',run:()=>{S.siegeSetup=null;hideModal()}}
+  ])
+}
+function siegeBattle(townKey){
+  const town=W.towns[townKey];const s=S.siegeSetup||{ram:0,catapult:0,tower:0};
+  const bonus=1+(s.ram*.15+s.catapult*.25+s.tower*.4);
+  if(power()*bonus<town.garrison*.7)return log('Мало сил','bad');
+  const my=power()*1.1*bonus+Math.random()*5;const en=town.garrison*1.3+Math.random()*5;
+  if(my>en){
+    const loss=Math.max(1,Math.floor(totalTroops()*.3*casualtyMod()));
+    S.troops.infantry=Math.max(1,S.troops.infantry-loss);
+    town.faction='player';town.garrison=Math.floor(totalTroops()*.3);
+    S.ownsTown.push(townKey);S.fame+=20;addXP(50);
+    const cityLord=town.lord;
+    if(cityLord&&!S.prisoners.some(p=>p.lord===cityLord)&&Math.random()<.6){
+      const ransom=LORDS[cityLord].king?800:400;S.prisoners.push({lord:cityLord,ransom});log(`⛓ Пленён ${LORDS[cityLord].name}!`,'good')
+    }
+    log(`🏰 ${LOCS[townKey].name} взят! -${loss}`,'good');S.siegeSetup=null;checkVictory()
+  }else{
+    const loss=Math.max(1,Math.floor(totalTroops()*.5*casualtyMod()));
+    S.troops.infantry=Math.max(1,S.troops.infantry-loss);
+    town.garrison=Math.max(1,town.garrison-5);log(`💀 Штурм провален! -${loss}`,'bad')
+  }
+  passDay();save();render()
+}
+
+function tournament(){
+  if(S.gold<20)return log('Нужно 20 зол.','bad');
+  S.gold-=20;let round=0;const myBase=power();const rounds=[15,25,40];
+  const next=()=>{
+    if(round>=3){const prize=300;S.gold+=prize;S.fame+=8;addXP(25);log(`🏆 Победа!`,'good');floatText(`+${prize} зол.`,'gold');checkVictory();passDay();save();render();return}
+    const opp=rounds[round]+Math.random()*10;
+    if(myBase+Math.random()*8>opp){round++;log(`⚔ Раунд ${round} победа`,'good');if(round>=3)next();else setTimeout(next,300)}
+    else{const prize=round===2?100:round===1?50:0;S.gold+=prize;log(`🏆 Раунд ${round+1} — выбит`,'info');passDay();save();render()}
+  };
+  log('🏆 Турнир!','info');next()
+}
+
+function raidVillage(){
+  if(S.liege===LOCS[S.loc].faction)return log('Своих не грабим!','bad');
+  const u=S.villageUpgrades[S.loc]||{};
+  if(u.tower)return log('🗼 Башня защищает!','bad');
+  showModal('🔥 Разграбить?', [
+    {label:'Грабим!',sub:'+150 зол., -25 реп., -5 славы',run:()=>{
+      S.gold+=150;S.food+=20;gainRep(LOCS[S.loc].faction,-25);S.fame=Math.max(0,S.fame-5);
+      S.morale=Math.min(100,S.morale+8);S.manhunterBounty+=1;
+      floatText('+150 зол.','gold');log('🔥 Разграблено','bad');addXP(10);passDay();save();render()
+    }},
+    {label:'Уйти',run:()=>log('Ушли','info')}
+  ])
+}
+
+function openBanner(){
+  const colors=['#f0c060','#c04040','#4080c0','#40a040','#a040a0','#ffffff','#000000'];
+  const icons=['⚔','🛡','⭐','👑','🦅','🐺','🔥'];
+  const opts=[];
+  colors.forEach(c=>opts.push({label:`Фон: ${c}`,sub:S.banner.bg===c?'✅':'',keepOpen:true,run:()=>{S.banner.bg=c;save();openBanner()}}));
+  icons.forEach(i=>opts.push({label:`Символ: ${i}`,sub:S.banner.icon===i?'✅':'',keepOpen:true,run:()=>{S.banner.icon=i;save();openBanner()}}));
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal('🎨 Знамя',opts)
+}
+
+function worldTick(){
+  W.day++;
+  const fk=Object.keys(FACTIONS);
+  if(W.wars.length===0&&Math.random()<.03){
+    const a=fk[Math.floor(Math.random()*3)];let b=fk[Math.floor(Math.random()*3)];while(b===a)b=fk[Math.floor(Math.random()*3)];
+    W.wars.push({a,b,since:W.day});W.lastNews=`⚔ ${FACTIONS[a].name} vs ${FACTIONS[b].name}`;log(`🌍 Война`,'war')
+  }
+  if(W.wars.length>0&&Math.random()<.05){
+    const w=W.wars.shift();W.lastNews=`🕊 Мир`;log(`🕊 Мир`,'event')
+  }
+  W.wars.forEach(w=>{
+    if(Math.random()<.4){
+      const winner=Math.random()<.5?w.a:w.b;const loser=winner===w.a?w.b:w.a;
+      const enemyTowns=Object.keys(W.towns).filter(t=>W.towns[t].faction===loser);
+      if(enemyTowns.length>0){
+        const target=enemyTowns[Math.floor(Math.random()*enemyTowns.length)];
+        W.towns[target].garrison=Math.max(0,W.towns[target].garrison-5);
+        if(W.towns[target].garrison<=0){W.towns[target].faction=winner;W.towns[target].garrison=15;W.lastNews=`🏰 ${FACTIONS[winner].name} захватили ${LOCS[target].name}`;log(`🌍 Захват`,'war')}
+      }
+    }
+  });
+  ARMY_ROUTES.forEach((cfg,i)=>{
+    if(!W.armies[i]||W.armies[i].dead){
+      const st=LOC_POS[cfg.route[0]];
+      W.armies[i]={id:'a'+i,faction:cfg.faction,route:cfg.route,routeIdx:0,x:st.x,y:st.y,targetLoc:cfg.route[1]||cfg.route[0],strength:cfg.strength,paused:0,dead:false}
+    }
+  });
+  Object.keys(W.prices).forEach(g=>{W.prices[g]+=(1-W.prices[g])*.05;W.prices[g]=Math.max(.5,Math.min(2,W.prices[g]))});
+  S.ownsTown.forEach(t=>{if(W.towns[t])S.gold+=Math.floor(W.towns[t].prosperity*.4)});
+  Object.keys(S.workshops).forEach(k=>{if(W.towns[k])S.gold+=Math.floor(W.towns[k].prosperity*.05)+1});
+  if(S.guild)S.gold+=5;
+  economicTick();
+  if(S.day%30===0&&!S.feastLoc){
+    const castles=['castle','praven','tihr','tulga'];
+    S.feastLoc=castles[Math.floor(Math.random()*castles.length)];S.lastFeast=S.day;
+    log(`🍷 Пир!`,'event')
+  }
+  if(S.feastLoc&&S.day-S.lastFeast>=3)S.feastLoc=null;
+  if(S.manhunterBounty>0&&S.day%10===0)S.manhunterBounty=Math.max(0,S.manhunterBounty-1)
+}
+
+function passDay(){
+  if(S.prisoner)return;
+  S.day++;
+  const season=getSeason();
+  const pay=S.troops.infantry+S.troops.cavalry*2;
+  if(S.gold>=pay)S.gold-=pay;else{S.gold=0;S.morale-=20;log('Нет на жалованье (-20)','bad')}
+  const fm=season==='winter'?.7:.5;
+  S.food-=Math.ceil(totalTroops()*fm);
+  if(S.food<0){S.food=0;S.morale-=15;const s=Math.min(totalTroops()-1,3);if(s>0){S.troops.infantry=Math.max(0,S.troops.infantry-s);if(totalTroops()<1)S.troops.infantry=1;log(`Голод! -${s}`,'bad')}}
+  if(S.morale<30&&totalTroops()>1&&Math.random()<.4){const d=1+Math.floor(Math.random()*2);S.troops.infantry=Math.max(0,S.troops.infantry-d);if(totalTroops()<1)S.troops.infantry=1;log(`Дезертирство -${d}`,'bad')}
+  S.morale=Math.max(0,Math.min(100,S.morale));
+  if(S.companions.includes('luca'))S.fame+=2;
+  worldTick();
+  // Погода и день/ночь
+  if(S.day%3===0)updateWeather();
+  updateDayNight();
+  if(Math.random()<.3&&!S.dialogState)autoEvent();
+  if(Math.random()<.1&&!S.dialogState&&!document.getElementById('modal').classList.contains('show'))choiceEvent();
+  if(Math.random()<.15)log(AMBIENT[Math.floor(Math.random()*AMBIENT.length)],'event');
+  checkQuest();checkStoryQuest();save()
+}
+
+const AMBIENT=['Ветер несёт запах сосен.','Дорога пустынна.','Тучи.','Собаки лают.','Лиса мелькнула.','Крестьянин кланяется.','Солнце к закату.','Колокола.','Пахнет хлебом.','Дети играют.','Разведчик: чисто.','Вороны.','Дым костров.','Дождь по шлемам.','Кузнец стучит.','Монах с посохом.','Птицы на юг.','Туман.'];
+const RANDOM_EVENTS=[
+  {w:3,t:'good',m:'Нашли золото (+15)',a:()=>S.gold+=15},
+  {w:3,t:'good',m:'Подарили еду (+10)',a:()=>S.food+=10},
+  {w:2,t:'good',m:'Пошлина (+25)',a:()=>S.gold+=25},
+  {w:2,t:'good',m:'Песня (+3 славы)',a:()=>S.fame+=3},
+  {w:2,t:'good',m:'Монета (+10)',a:()=>S.gold+=10},
+  {w:2,t:'good',m:'Охота (+12 еды)',a:()=>S.food+=12},
+  {w:2,t:'good',m:'Солдат (+1)',a:()=>S.troops.infantry++},
+  {w:2,t:'good',m:'Сон (+8 духа)',a:()=>S.morale=Math.min(100,S.morale+8)},
+  {w:1,t:'good',m:'Подарили мех',a:()=>S.goods.fur++},
+  {w:1,t:'good',m:'Зерно (+5)',a:()=>S.goods.grain+=5},
+  {w:2,t:'bad',m:'Дезертир (-1)',a:()=>{if(S.troops.infantry>1)S.troops.infantry--}},
+  {w:3,t:'bad',m:'Еда испорчена (-8)',a:()=>S.food=Math.max(0,S.food-8)},
+  {w:2,t:'bad',m:'Усталость (-5 духа)',a:()=>S.morale=Math.max(0,S.morale-5)},
+  {w:2,t:'bad',m:'Обокрали (-15)',a:()=>S.gold=Math.max(0,S.gold-15)},
+  {w:2,t:'bad',m:'Сплетни (-2 славы)',a:()=>S.fame=Math.max(0,S.fame-2)}
+];
+const CHOICE_EVENTS=[
+  {title:'Попрошайка',choices:[
+    {label:'Дать 10',sub:'+3 славы',need:()=>S.gold>=10,run:()=>{S.gold-=10;S.fame+=3;log('+3 славы','good')}},
+    {label:'Мимо',run:()=>log('Прошли','info')}
+  ]},
+  {title:'Раненый солдат',choices:[
+    {label:'Взять',sub:'+1 пех.',need:()=>S.gold>=5,run:()=>{S.gold-=5;S.troops.infantry++;log('+1','good')}},
+    {label:'Оставить',sub:'-2 духа',run:()=>{S.morale=Math.max(0,S.morale-2);log('-2','bad')}}
+  ]},
+  {title:'Сундук',choices:[
+    {label:'Открыть',run:()=>{if(Math.random()<.7){const g=30+Math.floor(Math.random()*40);S.gold+=g;log(`+${g}`,'good')}else{const l=Math.max(1,Math.floor(totalTroops()*.1));S.troops.infantry=Math.max(1,S.troops.infantry-l);log(`-${l}`,'bad')}}},
+    {label:'Не трогать',run:()=>log('Прошли','info')}
+  ]}
+];
+function autoEvent(){
+  const elig=RANDOM_EVENTS.filter(e=>!e.need||e.need());if(!elig.length)return;
+  const tot=elig.reduce((s,e)=>s+(e.w||1),0);let r=Math.random()*tot;
+  for(const e of elig){r-=e.w||1;if(r<=0){e.a();log(`🎲 ${e.m}`,e.t||'info');return}}
+}
+function choiceEvent(){
+  const e=CHOICE_EVENTS[Math.floor(Math.random()*CHOICE_EVENTS.length)];
+  showModal(`🎲 ${e.title}`,e.choices.map(c=>({label:c.label,sub:c.sub,need:c.need,run:()=>{c.run();save();render()}})))
+}
+
+function travel(to){
+  if(to===S.loc||S.prisoner||S.moving||!LOC_POS[to])return;
+  S.moving=true;S.playerPos=LOC_POS[to];S.loc=to;
+  log(`Вы прибыли: ${LOCS[to].name}`,'info');
+  if(S.caravan&&S.caravan.to===to)completeCaravan();
+  setTimeout(()=>{S.moving=false;passDay();render()},1000);render()
+}
+function checkVictory(){if(S.fame>=100&&!S.won){S.won=true;document.getElementById('victory').classList.add('show')}}
+function checkQuest(){const q=QUESTS[S.questStep];if(!q)return;if(q.check()){if(q.reward.gold)S.gold+=q.reward.gold;if(q.reward.xp)addXP(q.reward.xp);log(`📜 Квест`,'good');S.questStep++;save()}}
+function checkStoryQuest(){
+  if(!S.storyTask)return;
+  const st=S.storyTask;const q=STORY_QUESTS[st.faction][st.idx];if(!q)return;
+  if(q.check()){
+    if(q.reward.gold)S.gold+=q.reward.gold;
+    if(q.reward.fame)S.fame+=q.reward.fame;
+    if(q.reward.rep)S.rep[st.faction]=(S.rep[st.faction]||0)+q.reward.rep;
+    if(q.reward.rel)Object.keys(q.reward.rel).forEach(l=>gainRel(l,q.reward.rel[l]));
+    log(`📜 Сюжет`,'good');S.story[st.faction]++;S.storyTask=null;save()
+  }
+}
+function openStory(faction){
+  const idx=S.story[faction]||0;const qs=STORY_QUESTS[faction];
+  if(idx>=qs.length)return showModal(`📜 ${FACTIONS[faction].name}`,[{label:'Пройден',run:()=>{}}]);
+  const q=qs[idx];const active=S.storyTask&&S.storyTask.faction===faction;const done=q.check();
+  showModal(`📜 Сюжет ${FACTIONS[faction].name} (${idx+1}/${qs.length})`,[
+    {label:q.desc,sub:`${q.reward.gold||0} зол.`,run:()=>{}},
+    {label:done?'✅ Завершить':(active?'В работе':'Принять'),need:()=>done||!active,keepOpen:true,run:()=>{
+      if(done){
+        if(q.reward.gold)S.gold+=q.reward.gold;
+        if(q.reward.fame)S.fame+=q.reward.fame;
+        if(q.reward.rep)S.rep[faction]=(S.rep[faction]||0)+q.reward.rep;
+        if(q.reward.rel)Object.keys(q.reward.rel).forEach(l=>gainRel(l,q.reward.rel[l]));
+        log(`📜 Сюжет!`,'good');S.story[faction]++;S.storyTask=null;save();render();openStory(faction)
+      }else{S.storyTask={faction,idx};save();openStory(faction)}
+    }},
+    {label:'← Назад',run:()=>{}}
+  ])
+}
+
+function openBlacksmith(){
+  showModal('⚒ Кузнец',[
+    {label:'🗡 Оружие',keepOpen:true,run:()=>eqMenu('🗡',WEAPONS,'weapon','atk')},
+    {label:'🛡 Броня',keepOpen:true,run:()=>eqMenu('🛡',ARMORS,'armor','def')},
+    {label:'⛑ Шлемы',keepOpen:true,run:()=>eqMenu('⛑',HELMETS,'helmet','def')},
+    {label:'👢 Сапоги',keepOpen:true,run:()=>eqMenu('👢',BOOTS,'boots','agi')},
+    {label:'💍 Кольца',keepOpen:true,run:()=>eqMenu('💍',RINGS,'ring','fame')},
+    {label:'🐎 Кони',keepOpen:true,run:()=>eqMenu('🐎',HORSES,'horse','bonus')},
+    {label:'← Назад',run:()=>{}}
+  ])
+}
+function eqMenu(title,data,key,stat){
+  const opts=[];
+  Object.keys(data).forEach(k=>{
+    const it=data[k];
+    if(S[key]===k)opts.push({label:`✅ ${it.name}`,sub:'надето',run:()=>{}});
+    else opts.push({label:`${it.name} (+${it[stat]||it.bonus||it.fame})`,sub:`${it.price} зол.`,need:()=>S.gold>=it.price,keepOpen:true,run:()=>{S.gold-=it.price;S[key]=k;log(`Куплено: ${it.name}`,'good');save();eqMenu(title,data,key,stat)}})
+  });
+  opts.push({label:'← Назад',run:openBlacksmith});
+  showModal(title,opts)
+}
+
+function openTavern(){
+  const opts=[];
+  Object.keys(COMPANIONS).forEach(k=>{
+    const c=COMPANIONS[k];
+    if(S.companions.includes(k))opts.push({label:`✅ ${c.name}`,sub:'в отряде',run:()=>{}});
+    else if(S.fame<c.fameReq)opts.push({label:c.name,sub:`Нужно ${c.fameReq} славы`,run:()=>{},disabled:true});
+    else opts.push({label:`${c.name} — ${c.desc}`,sub:`${c.price} зол.`,need:()=>S.gold>=c.price,keepOpen:true,run:()=>{S.gold-=c.price;S.companions.push(k);log(`Спутник: ${c.name}`,'good');save();render();openTavern()}})
+  });
+  if(S.companions.length>0)opts.push({label:'🤝 Квесты спутников',keepOpen:true,run:openCompanionQuests});
+  opts.push({label:'🗡 Гильдия воров',keepOpen:true,run:openThieves});
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal('🍺 Таверна',opts)
+}
+
+function openCaravan(from){
+  if(S.caravan)return log('Караван в пути!','bad');
+  const dests=Object.keys(W.towns).filter(t=>t!==from);
+  const opts=[];
+  Object.keys(GOODS).forEach(g=>{
+    const bp=getPrice(from,g);let best=null,bp2=0;
+    dests.forEach(d=>{const p=getPrice(d,g);if(p>bp2){bp2=p;best=d}});
+    if(best&&bp2>bp){
+      opts.push({label:`${GOODS[g].icon} → ${LOCS[best].name}`,sub:`Купить ${bp}, продать ~${bp2}. Профит ~${(bp2-bp)*5}`,need:()=>S.gold>=bp*5,run:()=>{
+        S.gold-=bp*5;S.caravan={from,to:best,goods:g,qty:5,pos:{x:LOC_POS[from].x,y:LOC_POS[from].y},targetPos:LOC_POS[best]};
+        log(`🐫 Караван`,'good');startCaravanTick();save();render()
+      }})
+    }
+  });
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal('🐫 Караван',opts)
+}
+let caravanTick=null;
+function startCaravanTick(){
+  if(caravanTick)clearInterval(caravanTick);
+  caravanTick=setInterval(()=>{
+    if(!S.caravan){clearInterval(caravanTick);caravanTick=null;return}
+    const c=S.caravan;const dx=c.targetPos.x-c.pos.x,dy=c.targetPos.y-c.pos.y,d=Math.sqrt(dx*dx+dy*dy);
+    if(d<.5){c.pos={x:c.targetPos.x,y:c.targetPos.y};clearInterval(caravanTick);caravanTick=null;completeCaravan()}
+    else{c.pos.x+=dx/d*.5;c.pos.y+=dy/d*.5}
+  },150)
+}
+function completeCaravan(){
+  const c=S.caravan;if(!c)return;
+  const price=getSellPrice(c.to,c.goods);
+  if(Math.random()<.25){log('🐫⚠ Нападение!','bad');S.caravan=null;startBattle(3+Math.floor(Math.random()*4),price*c.qty,'Бандиты','caravan');return}
+  const profit=price*c.qty;S.gold+=profit;S.caravansDone++;
+  W.towns[c.to].stock[c.goods]+=c.qty;
+  floatText(`+${profit} зол.`,'gold');log(`🐫 +${profit} зол.`,'good');addXP(8);S.caravan=null
+}
+
+function openGuild(faction){
+  if(S.guild){
+    if(S.guild===faction){
+      showModal(`🏛 Гильдия ${FACTIONS[faction].name}`,[
+        {label:'✅ Вы — член',sub:'+10% продажи, +5 зол/день',run:()=>{}},
+        {label:'Заказ (1 день)',run:()=>{const r=60+Math.floor(Math.random()*80);S.gold+=r;S.fame+=2;addXP(10);log(`+${r} зол.`,'good');passDay()}},
+        {label:'📜 Сюжет',keepOpen:true,run:()=>openStory(faction)},
+        {label:'⚔ Ордена',keepOpen:true,run:openOrders},
+        {label:'← Назад',run:()=>{}}
+      ])
+    }else{
+      showModal(`🏛 Гильдия`,[{label:`Вы в ${FACTIONS[S.guild].name}`,run:()=>{}},{label:'← Назад',run:()=>{}}])
+    }
+    return
+  }
+  const rep=S.rep[faction]||0;
+  showModal(`🏛 Гильдия ${FACTIONS[faction].name}`,[
+    {label:'Вступить (500)',sub:`Реп. ${rep}/20`,need:()=>S.gold>=500&&rep>=20,run:()=>{S.gold-=500;S.guild=faction;S.fame+=10;log('🏛 Вступили!','good');addXP(20)}},
+    {label:'Пожертвовать 100 (+5 реп.)',need:()=>S.gold>=100,run:()=>{S.gold-=100;gainRep(faction,5);log('+5 реп.','good')}},
+    {label:'📜 Сюжет',keepOpen:true,run:()=>openStory(faction)},
+    {label:'⚔ Ордена',keepOpen:true,run:openOrders},
+    {label:'← Назад',run:()=>{}}
+  ])
+}
+
+function openLiege(){
+  if(S.liege){
+    showModal(`🤝 ${FACTIONS[S.liege].name}`,[
+      {label:'Вассал',sub:`Реп: ${S.rep[S.liege]}`,run:()=>{}},
+      {label:'Отказаться',run:()=>{S.liege=null;log('Отказ','bad')}},
+      {label:'← Назад',run:()=>{}}
+    ]);return
+  }
+  const opts=Object.keys(FACTIONS).map(f=>({
+    label:`Присягнуть ${FACTIONS[f].name}`,sub:`Реп: ${S.rep[f]}`,
+    run:()=>{S.liege=f;gainRep(f,20);S.fame+=5;log(`🤝 Присягнули!`,'good');addXP(15)}
+  }));
+  opts.push({label:'← Назад',run:()=>{}});
+  showModal('🤝 Присягнуть',opts)
+}
+
+function fightBoss(key){
+  const b=BOSSES[key];if(S[`boss_${key}`])return log('Уже побеждён','info');
+  showModal(b.name,[
+    {label:`⚔ Сразиться (${b.power})`,sub:`+${b.gold} зол.`,run:()=>{
+      const my=power()+Math.random()*8,en=b.power+Math.random()*8;
+      if(my>en){S.troops.infantry=Math.max(1,S.troops.infantry-Math.floor(totalTroops()*.2));S.gold+=b.gold;S.fame+=b.fame;S[`boss_${key}`]=true;S.bossesKilled++;addXP(30);log(`🏆 ${b.name} побеждён!`,'good');checkVictory()}
+      else{S.troops.infantry=Math.max(1,S.troops.infantry-Math.floor(totalTroops()*.4));S.morale=Math.max(0,S.morale-15);log(`💀 Поражение`,'bad')}
+      passDay();save();render()
+    }},
+    {label:'🏳 Отступить',run:()=>log('Отступили','info')}
+  ])
+}
+
+function startBattle(enemyCount,enemyGold,enemyName,type){
+  if(totalTroops()<1)return log('Нет войска!','bad');
+  showModal(`Бой: ${enemyName} (${enemyCount})`,[
+    {label:'⚔ Атака',sub:'+20%',run:()=>resolveBattle(enemyCount,enemyGold,'attack',type)},
+    {label:'🛡 Оборона',sub:'+20% защиты',run:()=>resolveBattle(enemyCount,enemyGold,'defend',type)},
+    {label:'🐎 Обход',sub:'+30%',need:()=>S.troops.cavalry>0,run:()=>resolveBattle(enemyCount,enemyGold,'flank',type)},
+    {label:'🏳 Отступить',run:()=>log('Отступили','info')}
+  ])
+}
+function resolveBattle(enemyCount,enemyGold,formation,type){
+  let my=power(),en=enemyCount*1.3;
+  if(formation==='attack')my*=1.2;
+  if(formation==='defend')en*=.85;
+  if(formation==='flank')my*=1.3+HORSES[S.horse].bonus;
+  my+=Math.random()*3;en+=Math.random()*3;
+  if(my>en){
+    let loss=Math.min(totalTroops(),Math.floor(enemyCount*.3*Math.random()*casualtyMod()));
+    S.troops.infantry-=Math.min(S.troops.infantry,loss);
+    S.troops.cavalry-=Math.min(S.troops.cavalry,Math.max(0,loss-S.troops.infantry));
+    S.gold+=enemyGold;
+    const fg=Math.floor(enemyCount/2*fameMod());
+    S.fame+=fg;S.battlesWon++;
+    if(type==='chief')S.chiefsKilled++;
+    if(type==='bandits')S.banditsKilled+=enemyCount;
+    addXP(10+enemyCount*2);S.morale=Math.min(100,S.morale+5);
+    floatText(`+${enemyGold} зол.`,'gold');
+    log(`⚔ Победа! -${loss}, +${enemyGold} зол., +${fg} славы`,'good');checkVictory()
+  }else{
+    let loss=Math.max(1,Math.floor(totalTroops()*.5*casualtyMod()));
+    S.troops.infantry=Math.max(1,S.troops.infantry-loss);
+    S.morale=Math.max(0,S.morale-10);
+    floatText(`-${loss} воинов`,'bad');
+    log(`💀 Поражение! -${loss}`,'bad');
+    if(Math.random()<.3&&S.gold>20){S.prisoner=true;S.ransom=Math.floor(S.gold*.4)+30;log(`⛓ В плену!`,'bad')}
+  }
+  passDay();save();render()
+}
+
+const DIALOGUES={
+  lady:{start:{text:data=>{const L=LADIES[data.id];const aff=S.courtship[data.id]||0;const m=aff<20?'холодно':aff<50?'ровно':aff<80?'тепло':'нежно';return `${L.name}: ${m}.`},choices:[
+    {text:'«Вы прекрасны»',action:data=>{S.courtship[data.id]=(S.courtship[data.id]||0)+3;log('Улыбнулась','good')},next:'start'},
+    {text:'Цветы (20)',need:()=>S.gold>=20,action:data=>{S.gold-=20;S.courtship[data.id]=(S.courtship[data.id]||0)+10;log('Цветы','good')},next:'start'},
+    {text:'Украшение (100)',need:()=>S.gold>=100,action:data=>{S.gold-=100;S.courtship[data.id]=(S.courtship[data.id]||0)+30;log('Восхищена','good')},next:'start'},
+    {text:'Предложение',condition:data=>(S.courtship[data.id]||0)>=100,action:data=>{S.wife=data.id;S.fame+=15;log('💍 Свадьба!','good');addXP(30);checkVictory()},end:true},
+    {text:'Уйти',end:true}
+  ]}},
+  merchant:{start:{text:()=>{let best=null,worst=null;Object.keys(GOODS).forEach(g=>{const p=getPrice(S.loc,g);if(!best||p<best.p)best={g,p};if(!worst||p>worst.p)worst={g,p}});return `«Дёшево ${GOODS[best.g].name}, дорого ${GOODS[worst.g].name}.»`},choices:[
+    {text:'«Совет»',next:'tip'},
+    {text:'«Караван»',action:()=>{hideModal();openCaravan(S.loc)},end:true},
+    {text:'«Пока»',end:true}
+  ]},
+  tip:{text:()=>{let best=null,profit=0;Object.keys(W.towns).forEach(t=>{if(t===S.loc)return;Object.keys(GOODS).forEach(g=>{const here=getPrice(S.loc,g);const there=getPrice(t,g);if(there-here>profit){profit=there-here;best={t,g}}})});if(!best)return '«Всё ровно.»';return `«Вези ${GOODS[best.g].name} в ${LOCS[best.t].name}. До ${Math.floor(profit)}/ед.»`},choices:[{text:'«Спасибо»',end:true}]}},
+  priest:{start:{text:'«Мир тебе.»',choices:[
+    {text:'Благословить (30, +15 духа)',need:()=>S.gold>=30,action:()=>{S.gold-=30;S.morale=Math.min(100,S.morale+15);log('Благословение','good')},end:true},
+    {text:'Исцелить (50, +5 пех.)',need:()=>S.gold>=50,action:()=>{S.gold-=50;S.troops.infantry+=5;log('+5 пех.','good')},end:true},
+    {text:'Уйти',end:true}
+  ]}}
+};
+function startDialogue(key,data){
+  if(typeof data==='string')data={id:data};
+  S.dialogState={key,node:'start',data:data||{}};
+  renderDialogue()
+}
+function renderDialogue(){
+  const ds=S.dialogState;if(!ds)return;
+  const node=DIALOGUES[ds.key][ds.node];
+  const text=typeof node.text==='function'?node.text(ds.data):node.text;
+  const choices=(node.choices||[]).filter(c=>!c.condition||c.condition(ds.data));
+  const opts=choices.map(c=>{
+    const canDo=!c.need||c.need();
+    return {label:c.text,need:()=>canDo,keepOpen:true,run:()=>{
+      if(c.action)c.action(ds.data);
+      if(c.next){ds.node=c.next;renderDialogue();save();render()}
+      else if(c.end){S.dialogState=null;hideModal();save();render()}
+    }}
+  });
+  showModal(text,opts)
+}
+
+function showModal(title,opts){
+  const m=document.getElementById('modal');const b=document.getElementById('modalBody');
+  b.innerHTML=`<h2>${title}</h2>`;
+  opts.forEach(o=>{
+    const btn=document.createElement('button');
+    btn.innerHTML=`${o.label}<small>${o.sub||''}</small>`;
+    const canDo=o.disabled?false:(!o.need||o.need());
+    if(!canDo)btn.disabled=true;
+    btn.onclick=()=>{if(!canDo)return;if(o.keepOpen){o.run();save();render()}else{hideModal();o.run();save();render()}};
+    b.appendChild(btn)
+  });
+  m.classList.add('show')
+}
+function hideModal(){document.getElementById('modal').classList.remove('show');S.dialogState=null}
+
+function save(){try{localStorage.setItem('lord_v8',JSON.stringify({S,W}))}catch(e){}}
+function load(){
+  try{
+    const raw=localStorage.getItem('lord_v8');
+    if(raw){const d=JSON.parse(raw);S=Object.assign(defaultState(),d.S);W=Object.assign(defaultWorld(),d.W);return}
+    const old=localStorage.getItem('lord_v7')||localStorage.getItem('lord_v6');
+    if(old){const d=JSON.parse(old);S=Object.assign(defaultState(),d.S);W=Object.assign(defaultWorld(),d.W)}
+  }catch(e){}
+}
+
+function exportSave(){
+  try{
+    const txt=btoa(unescape(encodeURIComponent(JSON.stringify({S,W}))));
+    const b=document.getElementById('modalBody');
+    b.innerHTML=`<h2>💾 Экспорт</h2><p style="font-size:11px;color:#c0a870">Скопируйте</p>`;
+    const ta=document.createElement('textarea');ta.value=txt;ta.readOnly=true;b.appendChild(ta);
+    const sel=document.createElement('button');sel.textContent='Выделить';sel.onclick=()=>{ta.select();ta.setSelectionRange(0,txt.length)};b.appendChild(sel);
+    const c=document.createElement('button');c.textContent='Закрыть';c.onclick=hideModal;b.appendChild(c);
+    document.getElementById('modal').classList.add('show')
+  }catch(e){alert('Ошибка: '+e.message)}
+}
+function importSave(){
+  const b=document.getElementById('modalBody');b.innerHTML=`<h2>📥 Импорт</h2>`;
+  const ta=document.createElement('textarea');b.appendChild(ta);
+  const ok=document.createElement('button');ok.textContent='Загрузить';
+  ok.onclick=()=>{try{const d=JSON.parse(decodeURIComponent(escape(atob(ta.value.trim()))));S=Object.assign(defaultState(),d.S);W=Object.assign(defaultWorld(),d.W);initArmies();hideModal();log('Загружено','good');save();render()}catch(e){alert('Ошибка: '+e.message)}};
+  b.appendChild(ok);
+  const c=document.createElement('button');c.textContent='Отмена';c.onclick=hideModal;b.appendChild(c);
+  document.getElementById('modal').classList.add('show')
+}
+
+function openCharacter(){
+  const eq=`⚔ ${WEAPONS[S.weapon].name}<br>🛡 ${ARMORS[S.armor].name}<br>⛑ ${HELMETS[S.helmet].name}<br>👢 ${BOOTS[S.boots].name}<br>💍 ${RINGS[S.ring].name}<br>🐎 ${HORSES[S.horse].name}`;
+  const comps=S.companions.length===0?'—':S.companions.map(k=>COMPANIONS[k].name).join('<br>');
+  const reps=Object.keys(FACTIONS).map(f=>`${FACTIONS[f].name}: <b>${S.rep[f]}</b>`).join('<br>');
+  document.getElementById('modalBody').innerHTML=`
+    <h2>👤 Герой</h2>
+    <div class="section"><b>Ур.${S.level}</b> · XP ${S.xp}/${S.level*20}<br>СИЛА ${S.str} · ЛОВ ${S.agi} · ИНТ ${S.int}</div>
+    <div class="section"><b>Экипировка</b><br>${eq}</div>
+    <div class="section"><b>Спутники</b><br>${comps}</div>
+    <div class="section"><b>Репутация</b><br>${reps}</div>
+    <div class="section">Сюзерен: <b>${S.liege?FACTIONS[S.liege].name:'—'}</b><br>Гильдия: <b>${S.guild?FACTIONS[S.guild].name:'—'}</b><br>Орден: <b>${S.order?ORDERS[S.order].name:'—'}</b><br>Жена: <b>${S.wife?LADIES[S.wife].name:'—'}</b></div>
+    <button onclick="hideModal()">Закрыть</button>
+    <button onclick="hideModal();openBanner()">🎨 Знамя</button>
+  `;
+  document.getElementById('modal').classList.add('show')
+}
+function openWorldScreen(){
+  let h='<h2>🌍 Мир</h2>';
+  h+=`<div class="section"><b>Войны:</b><br>`;
+  if(W.wars.length===0)h+='Мир';
+  else W.wars.forEach(w=>{h+=`⚔ ${FACTIONS[w.a].name} — ${FACTIONS[w.b].name}<br>`});
+  h+='</div><div class="section"><b>Города:</b><br>';
+  Object.keys(W.towns).forEach(t=>{
+    const tw=W.towns[t];const fac=tw.faction==='player'?'ВЫ':(FACTIONS[tw.faction]?.name||'?');
+    h+=`${LOCS[t].name} — <b>${fac}</b> (гарн. ${tw.garrison})<br>`
+  });
+  h+='</div><div class="section"><b>Погода:</b> <b>'+(S.weather==='rain'?'🌧 Дождь':S.weather==='snow'?'❄ Снег':'☀ Ясно')+'</b></div>';
+  h+='<button onclick="hideModal()">Закрыть</button>';
+  document.getElementById('modalBody').innerHTML=h;
+  document.getElementById('modal').classList.add('show')
+}
+function openLordsScreen(){
+  const opts=Object.keys(LORDS).map(id=>{
+    const L=LORDS[id];const rel=S.lordsRel[id]||0;
+    const status=S.prisoners.some(p=>p.lord===id)?'⛓ Плен':`Отн: ${rel}`;
+    return {label:`${L.title} ${L.name.split(' ').slice(1).join(' ')}`,sub:`${FACTIONS[L.faction].name} · ${status}`,run:()=>{
+      if(S.prisoners.some(p=>p.lord===id))return log('В плену','info');
+      if(S.loc!==L.home)return log(`В ${LOCS[L.home].name}`,'bad');
+      hideModal();openLordDialogue(id)
+    }}
+  });
+  opts.push({label:'⛓ Пленники',sub:`${S.prisoners.length}`,run:openPrisoners});
+  opts.push({label:'⚔ Ордена',run:openOrders});
+  opts.push({label:'← Закрыть',run:()=>{}});
+  showModal('👑 Лорды',opts)
+}
+
+function render(){
+  if(S.prisoner){
+    document.getElementById('content').innerHTML=`
+      <div class="location"><h2>⛓ Плен</h2><p>Выкуп: ${S.ransom}</p>
+      <div class="actions">
+        <button id="payR" ${S.gold<S.ransom?'disabled':''}>💰 Заплатить (${S.ransom})</button>
+        <button id="waitR">⏳ Ждать</button>
+      </div></div>`;
+    document.getElementById('payR').onclick=()=>{if(S.gold<S.ransom)return;S.gold-=S.ransom;S.prisoner=false;S.ransom=0;log('Выкуплены','good');save();render()};
+    document.getElementById('waitR').onclick=()=>{S.troops.infantry=Math.max(1,Math.floor(S.troops.infantry/2));S.troops.cavalry=Math.floor(S.troops.cavalry/2);S.prisoner=false;S.ransom=0;log('Выпущены','bad');save();render()};
+    return
+  }
+  document.getElementById('day').textContent=S.day;
+  document.getElementById('gold').textContent=S.gold;
+  document.getElementById('food').textContent=S.food;
+  document.getElementById('infantry').textContent=S.troops.infantry;
+  document.getElementById('cavalry').textContent=S.troops.cavalry;
+  document.getElementById('fame').textContent=S.fame;
+  document.getElementById('power').textContent=Math.floor(power());
+  document.getElementById('morale').textContent=S.morale;
+  document.getElementById('level').textContent=S.level;
+  document.getElementById('owns').textContent=S.ownsTown.length;
+  document.getElementById('liege').textContent=S.liege?FACTIONS[S.liege].name:'—';
+  document.getElementById('season').textContent=seasonName(getSeason());
+  const xpNeed=S.level*20;
+  document.getElementById('xpFill').style.width=Math.min(100,S.xp/xpNeed*100)+'%';
+  document.getElementById('xpText').textContent=`${S.xp}/${xpNeed}`;
+  const q=QUESTS[S.questStep];
+  document.getElementById('quest').innerHTML=q?`📜 <b>Квест:</b> ${q.desc}`:`📜 <b>Все!</b>`;
+  document.getElementById('newsText').textContent=W.lastNews||'Мир тих';
+
+  const L=LOCS[S.loc];
+  let h=`<div class="location"><h2>${L.name}</h2><p>${L.desc}</p><div class="actions">`;
+  if(L.town&&!S.ownsTown.includes(L.town))h+=`<button id="siegeBtn">🏰 Осадить (гарн.${W.towns[L.town].garrison})</button>`;
+  if(L.town&&S.ownsTown.includes(L.town)){
+    const g=S.garrisons[L.town]||{infantry:0,cavalry:0};
+    h+=`<button id="garrisonBtn">🏰 Гарнизон (${g.infantry}пех., ${g.cavalry}кав.)</button>`;
+  }
+  lordsAt(S.loc).forEach(lid=>{
+    if(S.prisoners.some(p=>p.lord===lid))return;
+    h+=`<button data-lord="${lid}">💬 ${LORDS[lid].name}</button>`;
+  });
+  if(S.feastLoc===S.loc)h+=`<button id="feastBtn">🍷 Пир! (+10 славы)</button>`;
+  L.actions.forEach((a,i)=>{
+    const canDo=!a.need||a.need();
+    h+=`<button data-action="${i}" ${canDo?'':'disabled'}>${a.label}</button>`;
+  });
+  h+='</div></div>';
+  h+='<div class="actions" style="display:grid;grid-template-columns:1fr 1fr;gap:5px">';
+  Object.keys(LOCS).forEach(k=>{
+    if(k===S.loc||!LOC_POS[k])return;
+    let label=LOCS[k].name;
+    if(LOCS[k].town&&S.ownsTown.includes(LOCS[k].town))label+=' 🟢';
+    h+=`<button data-loc="${k}" style="text-align:center;font-size:11px">${label}</button>`;
+  });
+  h+='</div>';
+
+  const content=document.getElementById('content');
+  content.innerHTML=h;
+  if(document.getElementById('siegeBtn'))document.getElementById('siegeBtn').onclick=()=>openSiege(L.town);
+  if(document.getElementById('garrisonBtn'))document.getElementById('garrisonBtn').onclick=()=>openGarrison(L.town);
+  if(document.getElementById('feastBtn'))document.getElementById('feastBtn').onclick=()=>{
+    S.fame+=10;gainRep(L.faction||'svadia',10);S.morale=Math.min(100,S.morale+10);
+    S.feastsVisited=(S.feastsVisited||0)+1;
+    log('🍷 Пир! +10 славы','good');S.feastLoc=null;save();render()
+  };
+  content.querySelectorAll('[data-lord]').forEach(b=>{b.onclick=()=>openLordDialogue(b.dataset.lord)});
+  content.querySelectorAll('[data-action]').forEach(b=>{b.onclick=()=>{if(b.disabled)return;L.actions[+b.dataset.action].run();save();render()}});
+  content.querySelectorAll('[data-loc]').forEach(b=>{b.onclick=()=>travel(b.dataset.loc)})
+}
+
+document.getElementById('btnNew').onclick=()=>{
+  if(confirm('Новая игра?')){
+    S=defaultState();W=defaultWorld();
+    ['lord_v8','lord_v7','lord_v6'].forEach(k=>localStorage.removeItem(k));
+    document.getElementById('log').innerHTML='';
+    document.getElementById('victory').classList.remove('show');
+    document.getElementById('modal').classList.remove('show');
+    initArmies();renderMapBase();generateTerrain();
+    log('Новая игра!','info');save();render()
+  }
+};
+document.getElementById('btnChar').onclick=openCharacter;
+document.getElementById('btnWorld').onclick=openWorldScreen;
+document.getElementById('btnLords').onclick=openLordsScreen;
+document.getElementById('btnSave').onclick=()=>{
+  showModal('💾',[
+    {label:'📤 Экспорт',run:exportSave},
+    {label:'📥 Импорт',run:importSave},
+    {label:'💾 Сохранить',run:()=>{save();log('Сохранено','good')}},
+    {label:'← Назад',run:()=>{}}
+  ])
+};
+
+// ============ СТАРТ ============
+load();initArmies();renderMapBase();generateTerrain();
+if(S.day===1&&S.gold===100&&S.fame===0){log('Добро пожаловать!','info');W.lastNews='Мир тих...'}
+else{log(`Возвращение! День ${S.day}`,'info')}
+updateWeather();updateDayNight();
+if(S.caravan&&S.caravan.pos)startCaravanTick();
+render();
+// Запуск игрового цикла
+rafId=requestAnimationFrame(gameLoop);
+window.addEventListener('resize',()=>{updateArmyDOM()});
+</script>
+</body>
+</html>
