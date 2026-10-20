@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Drag Racer v6.1</title>
+<title>Drag Racer v6.2</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{width:100%;height:100dvh;overflow:hidden;background:#000;font-family:Arial,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
-canvas{display:block;touch-action:none}
+canvas{display:block;touch-action:none;width:100%;height:100%}
 #start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background:#0a0a0a;color:#fff;font-size:24px;z-index:100;cursor:pointer;padding:20px;text-align:center}
 #start b{color:#4af;font-size:min(48px,11vw);margin-bottom:14px}
 #start small{opacity:.55;font-size:13px;margin-top:18px;line-height:1.7}
@@ -15,13 +15,19 @@ canvas{display:block;touch-action:none}
 </head>
 <body>
 <div id="start">
-  <b>🏁 DRAG RACER v6.1</b>
+  <b>🏁 DRAG RACER v6.2</b>
   Мобильная версия
-  <small>Починено управление газом<br>Нажми для игры</small>
+  <small>ФИНАЛЬНЫЙ ФИКС УПРАВЛЕНИЯ<br>Нажми для игры</small>
 </div>
 <canvas id="c"></canvas>
 <script>
 'use strict';
+
+// ============ ГЛОБАЛЬНАЯ ОБРАБОТКА ОШИБОК ============
+window.onerror = function(msg, url, line) {
+  alert("Ошибка игры: " + msg + "\nСтрока: " + line);
+  return false;
+};
 
 // ============ DEVICE ============
 const isMobile = ('ontouchstart' in window) || innerWidth < 900;
@@ -347,7 +353,15 @@ let state = {
 
 function ensureUpgrades(id){ if(!state.upgrades[id]) state.upgrades[id]={engine:0,turbo:0,tires:0,weight:0,gear:0,aero:0,nitrous:0}; }
 function save(){ try{ localStorage.setItem('dragSaveV6', JSON.stringify({money:state.money, owned:state.owned, currentCar:state.currentCar, upgrades:state.upgrades, bossesBeaten:state.bossesBeaten, records:state.records})); } catch(e){} }
-function load(){ try{ const d = JSON.parse(localStorage.getItem('dragSaveV6')); if(d) Object.assign(state, d); } catch(e){} }
+function load(){ 
+  try{ 
+    const d = JSON.parse(localStorage.getItem('dragSaveV6')); 
+    if(d) {
+      Object.assign(state, d);
+      if (!state.player) state.player = {x:0,y:-200,angle:-Math.PI/2,speed:0};
+    }
+  } catch(e){} 
+}
 function getCar(id){ return CARS.find(c=>c.id===id); }
 
 const statsCache = new Map();
@@ -737,10 +751,16 @@ function collideBuildings(p){
   }
 }
 
+// ГЛОБАЛЬНЫЙ ОБЪЕКТ ДЛЯ КНОПОК
+window.touchBtnState = {};
+
 function updateWorld(dt){
-  const p = state.player, k = state.keys, tb = touchBtnState;
-  // ФИКС: теперь игра читает и с клавиатуры, и с экранных кнопок
-  const up = k['w']||k['arrowup']||tb['_up'], dn = k['s']||k['arrowdown']||tb['_down'], lf = k['a']||k['arrowleft']||tb['_left'], rt = k['d']||k['arrowright']||tb['_right'];
+  const p = state.player, k = state.keys;
+  // Читаем напрямую из глобального объекта
+  const up = k['w']||k['arrowup']||window.touchBtnState['_up'], 
+        dn = k['s']||k['arrowdown']||window.touchBtnState['_down'], 
+        lf = k['a']||k['arrowleft']||window.touchBtnState['_left'], 
+        rt = k['d']||k['arrowright']||window.touchBtnState['_right'];
   
   if (up) p.speed = Math.min(700, p.speed + 900*dt); else if (dn) p.speed = Math.max(0, p.speed - 1400*dt); else p.speed = Math.max(0, p.speed - 500*dt);
   const turn = (lf?-1:0)+(rt?1:0), sf = Math.min(1, p.speed/120); p.angle += turn * sf * 2.8 * dt;
@@ -810,10 +830,6 @@ function escape(){
   else if (state.mode === 'RACE') { state.mode = 'WORLD'; state.race = null; updateEngineSound(0, false); }
 }
 
-// ============ MULTI-TOUCH FIX ============
-let activeTouches = new Map();
-let touchBtnState = {};
-
 function getMobileButtons(){
   if (!isMobile) return [];
   const bs = 70, pad = 15; const btns = [];
@@ -834,7 +850,7 @@ function getMobileButtons(){
 function drawMobileButtons(){
   if (!isMobile) return;
   for (const b of getMobileButtons()) {
-    const pressed = touchBtnState[b.id];
+    const pressed = window.touchBtnState[b.id];
     ctx.fillStyle = pressed ? 'rgba(80,220,80,0.6)' : 'rgba(255,255,255,0.2)';
     ctx.fillRect(b.x, b.y, b.w, b.h);
     ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2; ctx.strokeRect(b.x, b.y, b.w, b.h);
@@ -846,58 +862,41 @@ function drawMobileButtons(){
 
 function isInside(b, x, y){ return x >= b.x && x <= b.x+b.w && y >= b.y && y <= b.y+b.h; }
 
-canvas.addEventListener('touchstart', e => {
+// ИСПОЛЬЗУЕМ POINTER EVENTS (РАБОТАЮТ ВЕЗДЕ)
+canvas.addEventListener('pointerdown', e => {
   e.preventDefault(); initAudio();
-  for (const t of e.changedTouches) {
-    let handled = false;
-    for (const b of getMobileButtons()) {
-      if (isInside(b, t.clientX, t.clientY)) {
-        activeTouches.set(t.identifier, b.id);
-        touchBtnState[b.id] = true;
-        if (b.id === '_shift') doShift();
-        if (b.id === '_nitro') doNitro();
-        if (b.id === '_act') interact();
-        handled = true; break;
-      }
-    }
-    if (handled) continue;
-    
-    if (state.mode === 'RESULT') { state.mode = 'WORLD'; state.race = null; }
-    else if (state.mode === 'GARAGE') handleGarageTap(t.clientX, t.clientY);
-    else if (state.mode === 'DEALER') handleDealerTap(t.clientX, t.clientY);
-    else if (state.mode === 'WORLD' && state.nearMarker) interact();
-    else if (state.mode === 'RACE') doShift();
-  }
-}, {passive:false});
-
-canvas.addEventListener('touchend', e => {
-  e.preventDefault();
-  for (const t of e.changedTouches) {
-    const btnId = activeTouches.get(t.identifier);
-    if (btnId) {
-      activeTouches.delete(t.identifier);
-      let stillPressed = false;
-      for (const [id, bid] of activeTouches.entries()) if (bid === btnId) stillPressed = true;
-      touchBtnState[btnId] = stillPressed;
+  let handled = false;
+  for (const b of getMobileButtons()) {
+    if (isInside(b, e.clientX, e.clientY)) {
+      window.touchBtnState[b.id] = true;
+      if (b.id === '_shift') doShift();
+      if (b.id === '_nitro') doNitro();
+      if (b.id === '_act') interact();
+      handled = true; break;
     }
   }
-}, {passive:false});
-canvas.addEventListener('touchcancel', e => {
-  e.preventDefault();
-  for (const t of e.changedTouches) {
-    const btnId = activeTouches.get(t.identifier);
-    if (btnId) { activeTouches.delete(t.identifier); touchBtnState[btnId] = false; }
-  }
-}, {passive:false});
-
-canvas.addEventListener('click', e => {
-  if (isMobile) return;
-  initAudio(); const x = e.clientX, y = e.clientY;
+  if (handled) return;
+  
   if (state.mode === 'RESULT') { state.mode = 'WORLD'; state.race = null; }
-  else if (state.mode === 'GARAGE') handleGarageTap(x, y);
-  else if (state.mode === 'DEALER') handleDealerTap(x, y);
+  else if (state.mode === 'GARAGE') handleGarageTap(e.clientX, e.clientY);
+  else if (state.mode === 'DEALER') handleDealerTap(e.clientX, e.clientY);
   else if (state.mode === 'WORLD' && state.nearMarker) interact();
-});
+  else if (state.mode === 'RACE') doShift();
+}, {passive:false});
+
+canvas.addEventListener('pointerup', e => {
+  e.preventDefault();
+  for (const b of getMobileButtons()) {
+    window.touchBtnState[b.id] = false;
+  }
+}, {passive:false});
+
+canvas.addEventListener('pointercancel', e => {
+  e.preventDefault();
+  for (const b of getMobileButtons()) {
+    window.touchBtnState[b.id] = false;
+  }
+}, {passive:false});
 
 // ============ RESPONSIVE GARAGE ============
 function drawGarage(){
@@ -963,7 +962,6 @@ function drawGarage(){
     }
   });
 
-  // Back Button
   const backY = H - 65;
   ctx.fillStyle = '#335577'; ctx.fillRect(20, backY, W - 40, 45);
   ctx.strokeStyle = '#4af'; ctx.lineWidth = 2; ctx.strokeRect(20, backY, W - 40, 45);
@@ -1118,6 +1116,7 @@ function render(){
 
 function renderWorld(){
   const p = state.player;
+  if (!p) return; // Защита от пустого игрока
   camX += (p.x - camX) * 0.12; camY += (p.y - camY) * 0.12;
   const isNight = state.weather.type === 'night', isRain = state.weather.type === 'rain';
   ctx.fillStyle = isNight ? '#0a0f1a' : (isRain ? '#151b1f' : '#16241a'); ctx.fillRect(0, 0, W, H);
@@ -1372,6 +1371,7 @@ load();
 state.owned.forEach(id => ensureUpgrades(id));
 if (!state.owned.includes(state.currentCar)) state.currentCar = state.owned[0];
 ensureUpgrades(state.currentCar);
+if (!state.player) state.player = {x:0,y:-200,angle:-Math.PI/2,speed:0};
 state.weather.temp = 22;
 
 queueChunksAround(state.player.x, state.player.y);
