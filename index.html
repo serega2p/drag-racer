@@ -1,0 +1,1852 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Drag Racer v5</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{overflow:hidden;background:#000;font-family:Arial,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+canvas{display:block;touch-action:none}
+#start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background:#0a0a0a;color:#fff;font-size:24px;z-index:100;cursor:pointer;padding:20px;text-align:center}
+#start b{color:#4af;font-size:min(48px,11vw);margin-bottom:14px}
+#start small{opacity:.55;font-size:13px;margin-top:18px;line-height:1.7}
+</style>
+</head>
+<body>
+<div id="start">
+  <b>🏁 DRAG RACER v5</b>
+  200+ машин • реалистичная физика
+  <small>Погода • Турбо-лаг • Шины • Полиция<br>Нажми для игры</small>
+</div>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+
+// ============ DEVICE ============
+const isMobile = ('ontouchstart' in window) || innerWidth < 900;
+const DPR = Math.min(devicePixelRatio || 1, isMobile ? 1.5 : 2);
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+let W, H;
+function resize() {
+  W = innerWidth; H = innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+addEventListener('resize', resize); resize();
+
+// ============ QUALITY ============
+const QUALITY = { LOW:0, MED:1, HIGH:2 };
+let quality = isMobile ? QUALITY.MED : QUALITY.HIGH;
+const QP = {
+  0: { traffic:5, peds:6, rain:40, minimap:false },
+  1: { traffic:9, peds:12, rain:80, minimap:true },
+  2: { traffic:14, peds:18, rain:120, minimap:true },
+};
+
+// ============ FONT CACHE ============
+const fontCache = new Map();
+function setFont(size, weight) {
+  const key = (weight||'') + size;
+  let f = fontCache.get(key);
+  if (!f) { f = (weight ? weight + ' ' : '') + size + 'px Arial'; fontCache.set(key, f); }
+  ctx.font = f;
+}
+
+// ============ AUDIO ============
+let audioCtx = null, engineOsc = null, engineGain = null, engineFilter = null;
+function initAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    engineOsc = audioCtx.createOscillator();
+    engineOsc.type = 'sawtooth';
+    engineFilter = audioCtx.createBiquadFilter();
+    engineFilter.type = 'lowpass';
+    engineFilter.frequency.value = 700;
+    engineGain = audioCtx.createGain();
+    engineGain.gain.value = 0;
+    engineOsc.connect(engineFilter);
+    engineFilter.connect(engineGain);
+    engineGain.connect(audioCtx.destination);
+    engineOsc.frequency.value = 60;
+    engineOsc.start();
+  } catch(e) {}
+}
+function updateEngineSound(rpm, throttle) {
+  if (!audioCtx) return;
+  engineOsc.frequency.setTargetAtTime(60 + rpm/12, audioCtx.currentTime, 0.05);
+  engineFilter.frequency.setTargetAtTime(600 + rpm/2, audioCtx.currentTime, 0.1);
+  engineGain.gain.setTargetAtTime(throttle ? Math.min(0.08, 0.02 + rpm/7500*0.06) : 0, audioCtx.currentTime, 0.1);
+}
+
+// ============ CARS DATA ============
+// Compact format, expanded later.
+// i:id b:brand m:model y:year t:tier h:hp k:kg d:drivetrain p:price
+// cd: Cd (drag coeff) cl: ClA (downforce × area) rl: redline rpm
+const CARS_RAW = [
+  // D TIER (35)
+  {i:'civic_si',b:'Honda',m:'Civic Si',y:2006,t:'D',h:205,k:1290,d:'FWD',p:5000},
+  {i:'gt86',b:'Toyota',m:'GT86',y:2012,t:'D',h:200,k:1240,d:'RWD',p:9000,rl:7400},
+  {i:'brz',b:'Subaru',m:'BRZ',y:2013,t:'D',h:200,k:1255,d:'RWD',p:9500,rl:7400},
+  {i:'mx5',b:'Mazda',m:'MX-5',y:2015,t:'D',h:155,k:1050,d:'RWD',p:8000,rl:7000},
+  {i:'corolla',b:'Toyota',m:'Corolla',y:2018,t:'D',h:140,k:1300,d:'FWD',p:6000},
+  {i:'focus_st',b:'Ford',m:'Focus ST',y:2013,t:'D',h:252,k:1456,d:'FWD',p:9000},
+  {i:'gti',b:'Volkswagen',m:'Golf GTI',y:2015,t:'D',h:210,k:1380,d:'FWD',p:12000},
+  {i:'elantra',b:'Hyundai',m:'Elantra Sport',y:2018,t:'D',h:201,k:1350,d:'FWD',p:8000},
+  {i:'sentra',b:'Nissan',m:'Sentra SR',y:2017,t:'D',h:130,k:1290,d:'FWD',p:6000},
+  {i:'impreza',b:'Subaru',m:'Impreza',y:2015,t:'D',h:148,k:1380,d:'AWD',p:8000},
+  {i:'mazda3',b:'Mazda',m:'Mazda3',y:2016,t:'D',h:155,k:1300,d:'FWD',p:7000},
+  {i:'fiesta_st',b:'Ford',m:'Fiesta ST',y:2014,t:'D',h:197,k:1270,d:'FWD',p:9000},
+  {i:'cooper_s',b:'Mini',m:'Cooper S',y:2015,t:'D',h:189,k:1240,d:'FWD',p:11000},
+  {i:'jetta',b:'Volkswagen',m:'Jetta GLI',y:2016,t:'D',h:210,k:1410,d:'FWD',p:9000},
+  {i:'lancer',b:'Mitsubishi',m:'Lancer',y:2015,t:'D',h:148,k:1320,d:'FWD',p:6000},
+  {i:'veloster',b:'Hyundai',m:'Veloster Turbo',y:2016,t:'D',h:201,k:1320,d:'FWD',p:11000},
+  {i:'cruze',b:'Chevrolet',m:'Cruze',y:2016,t:'D',h:153,k:1350,d:'FWD',p:5000},
+  {i:'mini_jcw',b:'Mini',m:'JCW',y:2018,t:'D',h:228,k:1270,d:'FWD',p:15000},
+  {i:'yaris',b:'Toyota',m:'Yaris GRMN',y:2018,t:'D',h:209,k:1135,d:'FWD',p:16000},
+  {i:'rio',b:'Kia',m:'Rio',y:2018,t:'D',h:120,k:1100,d:'FWD',p:4000},
+  {i:'fiesta',b:'Ford',m:'Fiesta',y:2019,t:'D',h:120,k:1140,d:'FWD',p:4000},
+  {i:'accent',b:'Hyundai',m:'Accent',y:2018,t:'D',h:130,k:1130,d:'FWD',p:4000},
+  {i:'polo',b:'Volkswagen',m:'Polo GTI',y:2018,t:'D',h:200,k:1345,d:'FWD',p:14000},
+  {i:'fabia',b:'Skoda',m:'Fabia RS',y:2012,t:'D',h:180,k:1300,d:'FWD',p:8000},
+  {i:'208',b:'Peugeot',m:'208 GTI',y:2016,t:'D',h:208,k:1160,d:'FWD',p:11000},
+  {i:'clio',b:'Renault',m:'Clio RS',y:2017,t:'D',h:200,k:1204,d:'FWD',p:13000},
+  {i:'corsa',b:'Opel',m:'Corsa OPC',y:2015,t:'D',h:207,k:1250,d:'FWD',p:10000},
+  {i:'versa',b:'Nissan',m:'Versa',y:2017,t:'D',h:109,k:1170,d:'FWD',p:3500},
+  {i:'spark',b:'Chevrolet',m:'Spark',y:2016,t:'D',h:98,k:1020,d:'FWD',p:3000},
+  {i:'mirage',b:'Mitsubishi',m:'Mirage',y:2017,t:'D',h:78,k:940,d:'FWD',p:3000},
+  {i:'500',b:'Fiat',m:'500 Abarth',y:2015,t:'D',h:160,k:1075,d:'FWD',p:9000},
+  {i:'swift',b:'Suzuki',m:'Swift Sport',y:2018,t:'D',h:140,k:970,d:'FWD',p:7000},
+  {i:'aygo',b:'Toyota',m:'Aygo',y:2018,t:'D',h:72,k:855,d:'FWD',p:2500},
+  {i:'fit',b:'Honda',m:'Fit',y:2018,t:'D',h:130,k:1070,d:'FWD',p:5000},
+  {i:'sandero',b:'Dacia',m:'Sandero RS',y:2016,t:'D',h:150,k:1170,d:'FWD',p:6000},
+
+  // C TIER (38)
+  {i:'wrx',b:'Subaru',m:'WRX STI',y:2015,t:'C',h:305,k:1537,d:'AWD',p:18000,cl:0.35},
+  {i:'evo',b:'Mitsubishi',m:'Lancer Evo X',y:2008,t:'C',h:291,k:1540,d:'AWD',p:17000,cl:0.35},
+  {i:'golfr',b:'Volkswagen',m:'Golf R',y:2015,t:'C',h:292,k:1476,d:'AWD',p:20000},
+  {i:'mustang',b:'Ford',m:'Mustang GT',y:2015,t:'C',h:435,k:1683,d:'RWD',p:22000},
+  {i:'camaro',b:'Chevrolet',m:'Camaro SS',y:2016,t:'C',h:455,k:1671,d:'RWD',p:24000},
+  {i:'challenger',b:'Dodge',m:'Challenger R/T',y:2016,t:'C',h:375,k:1878,d:'RWD',p:23000},
+  {i:'370z',b:'Nissan',m:'370Z',y:2014,t:'C',h:332,k:1500,d:'RWD',p:16000},
+  {i:'s2000',b:'Honda',m:'S2000',y:2005,t:'C',h:240,k:1250,d:'RWD',p:14000,rl:8000},
+  {i:'type_r',b:'Honda',m:'Civic Type R',y:2017,t:'C',h:306,k:1380,d:'FWD',p:25000,cl:0.5},
+  {i:'focus_rs',b:'Ford',m:'Focus RS',y:2016,t:'C',h:350,k:1524,d:'AWD',p:26000,cl:0.4},
+  {i:'stinger',b:'Kia',m:'Stinger GT',y:2018,t:'C',h:365,k:1800,d:'AWD',p:25000},
+  {i:'q50',b:'Infiniti',m:'Q50 Red Sport',y:2016,t:'C',h:400,k:1750,d:'RWD',p:26000},
+  {i:'is350',b:'Lexus',m:'IS350 F-Sport',y:2015,t:'C',h:306,k:1630,d:'RWD',p:22000},
+  {i:'m240i',b:'BMW',m:'M240i',y:2017,t:'C',h:340,k:1600,d:'RWD',p:28000},
+  {i:'a45',b:'Mercedes',m:'A45 AMG',y:2016,t:'C',h:381,k:1550,d:'AWD',p:30000},
+  {i:'c43',b:'Mercedes',m:'C43 AMG',y:2017,t:'C',h:367,k:1650,d:'AWD',p:32000},
+  {i:'s3',b:'Audi',m:'S3',y:2016,t:'C',h:310,k:1495,d:'AWD',p:27000},
+  {i:'gti_cs',b:'Volkswagen',m:'GTI Clubsport',y:2016,t:'C',h:290,k:1350,d:'FWD',p:26000},
+  {i:'tts',b:'Audi',m:'TT RS',y:2017,t:'C',h:400,k:1515,d:'AWD',p:32000,cl:0.4},
+  {i:'brz_ts',b:'Subaru',m:'BRZ tS',y:2018,t:'C',h:205,k:1270,d:'RWD',p:18000,rl:7400},
+  {i:'350z',b:'Nissan',m:'350Z',y:2006,t:'C',h:300,k:1500,d:'RWD',p:12000},
+  {i:'rx8',b:'Mazda',m:'RX-8',y:2005,t:'C',h:232,k:1310,d:'RWD',p:10000,rl:9000},
+  {i:'prelude',b:'Honda',m:'Prelude Type SH',y:2000,t:'C',h:200,k:1340,d:'FWD',p:8000,rl:8000},
+  {i:'silvia',b:'Nissan',m:'Silvia S15',y:2000,t:'C',h:250,k:1240,d:'RWD',p:15000,rl:7800},
+  {i:'mr2',b:'Toyota',m:'MR2 Turbo',y:1995,t:'C',h:200,k:1260,d:'RWD',p:11000,rl:7000},
+  {i:'crx',b:'Honda',m:'CRX SiR',y:1992,t:'C',h:160,k:920,d:'FWD',p:7000,rl:8200},
+  {i:'eclipse',b:'Mitsubishi',m:'Eclipse GSX',y:1999,t:'C',h:210,k:1420,d:'AWD',p:9000},
+  {i:'neon_srt4',b:'Dodge',m:'Neon SRT-4',y:2005,t:'C',h:230,k:1350,d:'FWD',p:8000},
+  {i:'cobalt_ss',b:'Chevrolet',m:'Cobalt SS',y:2008,t:'C',h:260,k:1400,d:'FWD',p:9000},
+  {i:'scirocco_r',b:'Volkswagen',m:'Scirocco R',y:2014,t:'C',h:265,k:1340,d:'FWD',p:18000},
+  {i:'308_gti',b:'Peugeot',m:'308 GTI',y:2017,t:'C',h:270,k:1205,d:'FWD',p:17000},
+  {i:'megane_rs',b:'Renault',m:'Megane RS',y:2018,t:'C',h:280,k:1430,d:'FWD',p:20000},
+  {i:'leon_cupra',b:'Seat',m:'Leon Cupra',y:2018,t:'C',h:300,k:1450,d:'FWD',p:19000},
+  {i:'giulietta',b:'Alfa Romeo',m:'Giulietta QV',y:2015,t:'C',h:240,k:1320,d:'FWD',p:15000},
+  {i:'128i',b:'BMW',m:'128i Coupe',y:2013,t:'C',h:230,k:1430,d:'RWD',p:14000},
+  {i:'cla_250',b:'Mercedes',m:'CLA 250',y:2018,t:'C',h:221,k:1485,d:'FWD',p:18000},
+  {i:'i30n',b:'Hyundai',m:'i30 N',y:2018,t:'C',h:275,k:1420,d:'FWD',p:22000},
+  {i:'fiesta_st200',b:'Ford',m:'Fiesta ST200',y:2016,t:'C',h:200,k:1260,d:'FWD',p:14000},
+
+  // B TIER (44)
+  {i:'m3',b:'BMW',m:'M3',y:2015,t:'B',h:425,k:1635,d:'RWD',p:40000,cl:0.4},
+  {i:'m4',b:'BMW',m:'M4',y:2015,t:'B',h:425,k:1572,d:'RWD',p:42000,cl:0.4},
+  {i:'c63',b:'Mercedes',m:'C63 AMG',y:2015,t:'B',h:469,k:1690,d:'RWD',p:45000},
+  {i:'rs5',b:'Audi',m:'RS5',y:2015,t:'B',h:450,k:1795,d:'AWD',p:45000,cl:0.4},
+  {i:'gtr',b:'Nissan',m:'GT-R',y:2017,t:'B',h:565,k:1752,d:'AWD',p:55000,cd:0.26,cl:0.7},
+  {i:'911_cs',b:'Porsche',m:'911 Carrera S',y:2015,t:'B',h:420,k:1420,d:'RWD',p:50000,cd:0.29,cl:0.5},
+  {i:'corvette',b:'Chevrolet',m:'Corvette C7',y:2015,t:'B',h:455,k:1598,d:'RWD',p:52000,cd:0.32,cl:0.6},
+  {i:'cayman_gt4',b:'Porsche',m:'Cayman GT4',y:2016,t:'B',h:385,k:1340,d:'RWD',p:55000,cd:0.30,cl:0.7},
+  {i:'supra',b:'Toyota',m:'Supra',y:2020,t:'B',h:382,k:1540,d:'RWD',p:50000,cd:0.30,cl:0.5},
+  {i:'nsx',b:'Acura',m:'NSX',y:2017,t:'B',h:573,k:1725,d:'AWD',p:70000,cd:0.29,cl:0.6},
+  {i:'m5',b:'BMW',m:'M5',y:2018,t:'B',h:600,k:1855,d:'AWD',p:65000},
+  {i:'e63',b:'Mercedes',m:'E63 S AMG',y:2018,t:'B',h:603,k:1855,d:'AWD',p:68000},
+  {i:'rs7',b:'Audi',m:'RS7',y:2017,t:'B',h:560,k:1995,d:'AWD',p:70000},
+  {i:'hellcat',b:'Dodge',m:'Challenger Hellcat',y:2016,t:'B',h:707,k:2020,d:'RWD',p:55000,cd:0.36},
+  {i:'gt350',b:'Ford',m:'Mustang GT350',y:2016,t:'B',h:526,k:1700,d:'RWD',p:50000,cl:0.6},
+  {i:'zl1',b:'Chevrolet',m:'Camaro ZL1',y:2017,t:'B',h:650,k:1780,d:'RWD',p:58000,cl:0.7},
+  {i:'cts_v',b:'Cadillac',m:'CTS-V',y:2016,t:'B',h:640,k:1880,d:'RWD',p:60000},
+  {i:'taycan',b:'Porsche',m:'Taycan Turbo S',y:2020,t:'B',h:750,k:2300,d:'AWD',p:75000,cd:0.22,cl:0.4},
+  {i:'m8',b:'BMW',m:'M8 Competition',y:2020,t:'B',h:617,k:1900,d:'AWD',p:80000},
+  {i:'m2',b:'BMW',m:'M2 Competition',y:2019,t:'B',h:405,k:1550,d:'RWD',p:40000},
+  {i:'m4_gts',b:'BMW',m:'M4 GTS',y:2017,t:'B',h:493,k:1510,d:'RWD',p:60000,cl:0.8},
+  {i:'c63s_coupe',b:'Mercedes',m:'C63 S Coupe',y:2018,t:'B',h:510,k:1780,d:'RWD',p:55000},
+  {i:'amg_gt43',b:'Mercedes',m:'AMG GT 43',y:2019,t:'B',h:367,k:1900,d:'AWD',p:65000},
+  {i:'rs4',b:'Audi',m:'RS4 Avant',y:2017,t:'B',h:450,k:1795,d:'AWD',p:48000},
+  {i:'rs6',b:'Audi',m:'RS6 Avant',y:2018,t:'B',h:605,k:2075,d:'AWD',p:70000},
+  {i:'ftype_r',b:'Jaguar',m:'F-Type R',y:2017,t:'B',h:550,k:1740,d:'AWD',p:60000,cd:0.31,cl:0.5},
+  {i:'rc_f',b:'Lexus',m:'RC F',y:2015,t:'B',h:467,k:1795,d:'RWD',p:45000},
+  {i:'giulia_qv',b:'Alfa Romeo',m:'Giulia QV',y:2017,t:'B',h:505,k:1524,d:'RWD',p:58000,cl:0.6},
+  {i:'ghibli',b:'Maserati',m:'Ghibli Trofeo',y:2018,t:'B',h:580,k:1800,d:'RWD',p:65000},
+  {i:'charger_hc',b:'Dodge',m:'Charger Hellcat',y:2017,t:'B',h:707,k:2050,d:'RWD',p:60000},
+  {i:'taurus_sho',b:'Ford',m:'Taurus SHO',y:2015,t:'B',h:365,k:1950,d:'AWD',p:30000},
+  {i:'ats_v',b:'Cadillac',m:'ATS-V',y:2016,t:'B',h:464,k:1635,d:'RWD',p:42000},
+  {i:'evora_410',b:'Lotus',m:'Evora 410',y:2018,t:'B',h:410,k:1356,d:'RWD',p:70000,cd:0.32,cl:0.6},
+  {i:'model3_perf',b:'Tesla',m:'Model 3 Perf',y:2019,t:'B',h:450,k:1850,d:'AWD',p:45000,cd:0.23},
+  {i:'rs3',b:'Audi',m:'RS3',y:2018,t:'B',h:400,k:1510,d:'AWD',p:40000},
+  {i:'cayman_s',b:'Porsche',m:'Cayman S',y:2016,t:'B',h:350,k:1340,d:'RWD',p:50000},
+  {i:'x3m',b:'BMW',m:'X3 M Competition',y:2020,t:'B',h:503,k:1970,d:'AWD',p:60000},
+  {i:'amg_gt63s',b:'Mercedes',m:'AMG GT63 S',y:2019,t:'B',h:639,k:2045,d:'AWD',p:75000},
+  {i:'rs_q8',b:'Audi',m:'RS Q8',y:2020,t:'B',h:600,k:2315,d:'AWD',p:85000},
+  {i:'stelvio_qv',b:'Alfa Romeo',m:'Stelvio QV',y:2018,t:'B',h:505,k:1830,d:'AWD',p:65000},
+  {i:'levante',b:'Maserati',m:'Levante Trofeo',y:2019,t:'B',h:590,k:2170,d:'AWD',p:75000},
+  {i:'model_s_dual',b:'Tesla',m:'Model S Dual Motor',y:2020,t:'B',h:670,k:2150,d:'AWD',p:60000},
+  {i:'mach1',b:'Ford',m:'Mustang Mach 1',y:2021,t:'B',h:480,k:1770,d:'RWD',p:55000},
+  {i:'m340i',b:'BMW',m:'M340i',y:2019,t:'B',h:382,k:1650,d:'AWD',p:45000},
+
+  // A TIER (49)
+  {i:'huracan',b:'Lamborghini',m:'Huracan',y:2015,t:'A',h:602,k:1422,d:'AWD',p:120000,cd:0.32,cl:1.0},
+  {i:'488',b:'Ferrari',m:'488 GTB',y:2015,t:'A',h:661,k:1475,d:'RWD',p:140000,cd:0.32,cl:1.2},
+  {i:'570s',b:'McLaren',m:'570S',y:2016,t:'A',h:562,k:1313,d:'RWD',p:130000,cd:0.30,cl:1.0},
+  {i:'720s',b:'McLaren',m:'720S',y:2017,t:'A',h:710,k:1419,d:'RWD',p:180000,cd:0.32,cl:1.2},
+  {i:'911_turbo',b:'Porsche',m:'911 Turbo S',y:2016,t:'A',h:580,k:1605,d:'AWD',p:150000,cd:0.30,cl:0.9},
+  {i:'r8',b:'Audi',m:'R8 V10 Plus',y:2015,t:'A',h:610,k:1555,d:'AWD',p:140000,cd:0.31,cl:1.1},
+  {i:'aventador',b:'Lamborghini',m:'Aventador S',y:2016,t:'A',h:730,k:1575,d:'AWD',p:220000,cd:0.33,cl:1.3},
+  {i:'gt',b:'Ford',m:'GT',y:2017,t:'A',h:647,k:1385,d:'RWD',p:250000,cd:0.35,cl:1.4},
+  {i:'f8',b:'Ferrari',m:'F8 Tributo',y:2020,t:'A',h:710,k:1435,d:'RWD',p:200000,cd:0.33,cl:1.3},
+  {i:'812',b:'Ferrari',m:'812 Superfast',y:2018,t:'A',h:789,k:1630,d:'RWD',p:230000,cd:0.33,cl:1.2},
+  {i:'gt3_rs',b:'Porsche',m:'911 GT3 RS',y:2018,t:'A',h:520,k:1430,d:'RWD',p:170000,cd:0.35,cl:1.5},
+  {i:'amg_gt',b:'Mercedes',m:'AMG GT R',y:2017,t:'A',h:577,k:1555,d:'RWD',p:160000,cd:0.34,cl:1.3},
+  {i:'sf90',b:'Ferrari',m:'SF90 Stradale',y:2020,t:'A',h:986,k:1570,d:'AWD',p:290000,cd:0.32,cl:1.3},
+  {i:'senna',b:'McLaren',m:'Senna',y:2018,t:'A',h:789,k:1198,d:'RWD',p:300000,cd:0.38,cl:2.0},
+  {i:'458',b:'Ferrari',m:'458 Italia',y:2012,t:'A',h:562,k:1380,d:'RWD',p:130000,cd:0.33,cl:1.1},
+  {i:'599_gto',b:'Ferrari',m:'599 GTO',y:2011,t:'A',h:661,k:1605,d:'RWD',p:200000,cd:0.35,cl:1.2},
+  {i:'f12',b:'Ferrari',m:'F12 Berlinetta',y:2013,t:'A',h:730,k:1630,d:'RWD',p:180000,cd:0.32,cl:1.1},
+  {i:'enzo',b:'Ferrari',m:'Enzo',y:2003,t:'A',h:651,k:1365,d:'RWD',p:400000,cd:0.36,cl:1.5},
+  {i:'gallardo',b:'Lamborghini',m:'Gallardo LP560',y:2009,t:'A',h:552,k:1500,d:'AWD',p:110000,cd:0.33,cl:1.0},
+  {i:'murcielago',b:'Lamborghini',m:'Murcielago LP670',y:2010,t:'A',h:661,k:1565,d:'AWD',p:200000,cd:0.35,cl:1.2},
+  {i:'aventador_svj',b:'Lamborghini',m:'Aventador SVJ',y:2019,t:'A',h:759,k:1525,d:'AWD',p:350000,cd:0.36,cl:1.8},
+  {i:'huracan_perf',b:'Lamborghini',m:'Huracan Performante',y:2018,t:'A',h:631,k:1382,d:'AWD',p:250000,cd:0.35,cl:1.6},
+  {i:'urus',b:'Lamborghini',m:'Urus',y:2019,t:'A',h:641,k:2200,d:'AWD',p:200000,cd:0.33,cl:0.7},
+  {i:'sian',b:'Lamborghini',m:'Sian',y:2020,t:'A',h:808,k:1620,d:'AWD',p:350000,cd:0.33,cl:1.4},
+  {i:'650s',b:'McLaren',m:'650S',y:2015,t:'A',h:641,k:1330,d:'RWD',p:180000,cd:0.31,cl:1.2},
+  {i:'675lt',b:'McLaren',m:'675LT',y:2016,t:'A',h:666,k:1328,d:'RWD',p:250000,cd:0.34,cl:1.6},
+  {i:'765lt',b:'McLaren',m:'765LT',y:2020,t:'A',h:755,k:1229,d:'RWD',p:350000,cd:0.35,cl:1.8},
+  {i:'mp4_12c',b:'McLaren',m:'MP4-12C',y:2012,t:'A',h:592,k:1365,d:'RWD',p:130000,cd:0.31,cl:1.0},
+  {i:'speedtail',b:'McLaren',m:'Speedtail',y:2020,t:'A',h:1035,k:1430,d:'RWD',p:400000,cd:0.30,cl:0.8},
+  {i:'918',b:'Porsche',m:'918 Spyder',y:2015,t:'A',h:887,k:1674,d:'AWD',p:400000,cd:0.33,cl:1.3},
+  {i:'carrera_gt',b:'Porsche',m:'Carrera GT',y:2004,t:'A',h:605,k:1380,d:'RWD',p:300000,cd:0.35,cl:1.2},
+  {i:'959',b:'Porsche',m:'959',y:1987,t:'A',h:444,k:1450,d:'AWD',p:250000,cd:0.31,cl:0.6},
+  {i:'gt2_rs',b:'Porsche',m:'911 GT2 RS',y:2018,t:'A',h:690,k:1470,d:'RWD',p:300000,cd:0.34,cl:1.7},
+  {i:'divo',b:'Bugatti',m:'Divo',y:2020,t:'A',h:1479,k:1961,d:'AWD',p:500000,cd:0.35,cl:1.5},
+  {i:'ccxr',b:'Koenigsegg',m:'CCXR',y:2008,t:'A',h:1018,k:1280,d:'RWD',p:400000,cd:0.34,cl:1.3},
+  {i:'one_1',b:'Koenigsegg',m:'One:1',y:2014,t:'A',h:1341,k:1360,d:'RWD',p:500000,cd:0.35,cl:1.6},
+  {i:'dbs',b:'Aston Martin',m:'DBS Superleggera',y:2019,t:'A',h:715,k:1693,d:'RWD',p:250000,cd:0.33,cl:1.2},
+  {i:'vantage_f1',b:'Aston Martin',m:'Vantage F1',y:2021,t:'A',h:656,k:1585,d:'RWD',p:180000,cd:0.35,cl:1.4},
+  {i:'vulcan',b:'Aston Martin',m:'Vulcan',y:2016,t:'A',h:820,k:1350,d:'RWD',p:400000,cd:0.38,cl:2.0},
+  {i:'vanquish',b:'Aston Martin',m:'Vanquish',y:2015,t:'A',h:565,k:1739,d:'RWD',p:150000},
+  {i:'xj220',b:'Jaguar',m:'XJ220',y:1994,t:'A',h:542,k:1470,d:'RWD',p:250000,cd:0.32,cl:0.8},
+  {i:'cx75',b:'Jaguar',m:'C-X75',y:2013,t:'A',h:888,k:1700,d:'AWD',p:500000,cd:0.34,cl:1.3},
+  {i:'exige_cup',b:'Lotus',m:'Exige Cup 430',y:2018,t:'A',h:430,k:1056,d:'RWD',p:200000,cd:0.38,cl:2.0},
+  {i:'noble_m600',b:'Noble',m:'M600',y:2012,t:'A',h:650,k:1198,d:'RWD',p:200000,cd:0.34,cl:1.4},
+  {i:'tsr_s',b:'Zenvo',m:'TSR-S',y:2019,t:'A',h:1177,k:1495,d:'RWD',p:400000,cd:0.36,cl:1.8},
+  {i:'zonda_r',b:'Pagani',m:'Zonda R',y:2010,t:'A',h:740,k:1070,d:'RWD',p:500000,cd:0.40,cl:2.5},
+  {i:'mc20',b:'Maserati',m:'MC20',y:2021,t:'A',h:621,k:1500,d:'RWD',p:220000,cd:0.32,cl:1.2},
+  {i:'cont_gt',b:'Bentley',m:'Continental GT Speed',y:2022,t:'A',h:650,k:2273,d:'AWD',p:250000},
+  {i:'wraith_bb',b:'Rolls-Royce',m:'Wraith Black Badge',y:2017,t:'A',h:624,k:2440,d:'RWD',p:250000,cd:0.34},
+
+  // S TIER (33)
+  {i:'chiron',b:'Bugatti',m:'Chiron',y:2017,t:'S',h:1500,k:1995,d:'AWD',p:500000,cd:0.35,cl:1.6,rl:6700},
+  {i:'jesko',b:'Koenigsegg',m:'Jesko',y:2020,t:'S',h:1600,k:1420,d:'RWD',p:600000,cd:0.28,cl:1.8,rl:8500},
+  {i:'nevera',b:'Rimac',m:'Nevera',y:2021,t:'S',h:1914,k:2150,d:'AWD',p:650000,cd:0.30,cl:1.5,rl:13500},
+  {i:'veyron',b:'Bugatti',m:'Veyron SS',y:2012,t:'S',h:1200,k:1888,d:'AWD',p:400000,cd:0.35,cl:1.2},
+  {i:'agera_rs',b:'Koenigsegg',m:'Agera RS',y:2015,t:'S',h:1160,k:1395,d:'RWD',p:450000,cd:0.33,cl:1.5},
+  {i:'huayra',b:'Pagani',m:'Huayra BC',y:2016,t:'S',h:789,k:1218,d:'RWD',p:500000,cd:0.34,cl:1.9},
+  {i:'regera',b:'Koenigsegg',m:'Regera',y:2016,t:'S',h:1500,k:1590,d:'RWD',p:550000,cd:0.32,cl:1.4},
+  {i:'valkyrie',b:'Aston Martin',m:'Valkyrie',y:2018,t:'S',h:1160,k:1030,d:'RWD',p:650000,cd:0.40,cl:2.5},
+  {i:'p1',b:'McLaren',m:'P1',y:2015,t:'S',h:903,k:1490,d:'RWD',p:400000,cd:0.34,cl:1.6},
+  {i:'laferrari',b:'Ferrari',m:'LaFerrari',y:2015,t:'S',h:949,k:1585,d:'RWD',p:450000,cd:0.34,cl:1.7},
+  {i:'model_s_plaid',b:'Tesla',m:'Model S Plaid',y:2021,t:'S',h:1020,k:2162,d:'AWD',p:300000,cd:0.24,cl:0.4,rl:15000},
+  {i:'chiron_ss',b:'Bugatti',m:'Chiron SS 300+',y:2021,t:'S',h:1600,k:1978,d:'AWD',p:700000,cd:0.30,cl:1.5,rl:6700},
+  {i:'bolide',b:'Bugatti',m:'Bolide',y:2024,t:'S',h:1825,k:1240,d:'AWD',p:900000,cd:0.40,cl:2.8},
+  {i:'tuatara',b:'SSC',m:'Tuatara',y:2020,t:'S',h:1750,k:1247,d:'RWD',p:500000,cd:0.28,cl:1.2},
+  {i:'ultimate_aero',b:'SSC',m:'Ultimate Aero',y:2007,t:'S',h:1183,k:1247,d:'RWD',p:300000,cd:0.32,cl:0.8},
+  {i:'venom_gt',b:'Hennessey',m:'Venom GT',y:2013,t:'S',h:1244,k:1244,d:'RWD',p:400000,cd:0.30,cl:1.0},
+  {i:'venom_f5',b:'Hennessey',m:'Venom F5',y:2022,t:'S',h:1817,k:1360,d:'RWD',p:600000,cd:0.28,cl:1.5},
+  {i:'jesko_absolut',b:'Koenigsegg',m:'Jesko Absolut',y:2023,t:'S',h:1600,k:1320,d:'RWD',p:700000,cd:0.26,cl:1.2},
+  {i:'gemera',b:'Koenigsegg',m:'Gemera',y:2023,t:'S',h:1700,k:1850,d:'AWD',p:600000,cd:0.30,cl:1.0},
+  {i:'cc850',b:'Koenigsegg',m:'CC850',y:2023,t:'S',h:1385,k:1385,d:'RWD',p:500000,cd:0.32,cl:1.3},
+  {i:'sabre',b:'McLaren',m:'Sabre',y:2021,t:'S',h:824,k:1495,d:'RWD',p:600000,cd:0.33,cl:1.6},
+  {i:'valkyrie_amr',b:'Aston Martin',m:'Valkyrie AMR Pro',y:2021,t:'S',h:1000,k:1000,d:'RWD',p:900000,cd:0.42,cl:3.0},
+  {i:'amg_one',b:'Mercedes',m:'AMG One',y:2022,t:'S',h:1063,k:1695,d:'AWD',p:800000,cd:0.38,cl:2.2},
+  {i:'daytona_sp3',b:'Ferrari',m:'Daytona SP3',y:2022,t:'S',h:840,k:1485,d:'RWD',p:600000,cd:0.36,cl:1.8},
+  {i:'veneno',b:'Lamborghini',m:'Veneno',y:2014,t:'S',h:740,k:1450,d:'AWD',p:800000,cd:0.38,cl:2.0},
+  {i:'centenario',b:'Lamborghini',m:'Centenario',y:2017,t:'S',h:770,k:1520,d:'AWD',p:700000,cd:0.36,cl:1.8},
+  {i:'revuelto',b:'Lamborghini',m:'Revuelto',y:2023,t:'S',h:1015,k:1772,d:'AWD',p:500000,cd:0.34,cl:1.6},
+  {i:'battista',b:'Pininfarina',m:'Battista',y:2022,t:'S',h:1900,k:2063,d:'AWD',p:600000,cd:0.30,cl:1.3},
+  {i:'concept_one',b:'Rimac',m:'Concept One',y:2016,t:'S',h:1224,k:1850,d:'AWD',p:400000,cd:0.32,cl:1.0},
+  {i:'czinger',b:'Czinger',m:'21C',y:2022,t:'S',h:1250,k:1250,d:'AWD',p:500000,cd:0.35,cl:2.0},
+  {i:'owl',b:'Aspark',m:'Owl',y:2021,t:'S',h:1985,k:1900,d:'AWD',p:500000,cd:0.30,cl:1.0},
+  {i:'ep9',b:'NIO',m:'EP9',y:2018,t:'S',h:1341,k:1735,d:'AWD',p:400000,cd:0.32,cl:1.5},
+  {i:'vayanne',b:'Deus',m:'Vayanne',y:2025,t:'S',h:2200,k:1900,d:'AWD',p:600000,cd:0.30,cl:1.2},
+];
+
+// ============ TIER DEFAULTS ============
+const TIER_DEF = {
+  D: { grip:1.00, cd:0.31, fa:2.2, clA:0.10, rl:6500, tr:1.00 },
+  C: { grip:1.05, cd:0.31, fa:2.2, clA:0.30, rl:7000, tr:1.00 },
+  B: { grip:1.10, cd:0.31, fa:2.2, clA:0.50, rl:7000, tr:1.05 },
+  A: { grip:1.20, cd:0.33, fa:2.1, clA:1.00, rl:8000, tr:1.10 },
+  S: { grip:1.30, cd:0.35, fa:2.3, clA:1.50, rl:8000, tr:1.15 },
+};
+
+// ============ EV / TURBO DETECTION ============
+const EV_SET = new Set(['Model S Plaid','Nevera','Taycan Turbo S','Model 3 Perf',
+  'Model S Dual Motor','EP9','Battista','Concept One','Owl','Vayanne']);
+const TURBO_RE = /Turbo|Hellcat|Demon|RS6|RS7|M5|M8|AMG|GT-R|488|F8|SF90|720S|570S|675LT|765LT|P1|Chiron|Veyron|Jesko|Agera|Regera|Venom|Huayra|Bolide|Golf R|Focus RS|WRX|Evo|GTI|Type R|Civic Si|JCW|Cooper S|Fiesta ST|Focus ST|Q50|Stinger|Supra|NSX|Cayman|911|M240i|A45|C43|S3|TT RS|Ghibli|Levante|Giulia|Stelvio|GTS|C63|GT3|GT2|Senna|Pista|F12|Enzo|458|599|Zonda|Aventador|Huracan|Gallardo|Murcielago|Diablo|XJ220|C-X75|TSR|MC20|CC850|Sabre|Veneno|Centenario|Revuelto|Czinger|Vayanne/;
+
+// ============ EXPAND CARS ============
+const CARS = CARS_RAW.map(c => {
+  const t = TIER_DEF[c.t];
+  const isEV = EV_SET.has(c.m);
+  const isTurbo = !isEV && TURBO_RE.test(c.m);
+  const isAWD = c.d === 'AWD';
+  const redline = c.rl || t.rl;
+
+  // Torque estimate from power and redline
+  const torqueNm = (c.h * 745.7) / (redline * 0.55 * Math.PI * 2 / 60) * t.tr;
+
+  // Gear ratios
+  let gearRatios, finalDrive;
+  if (isEV) {
+    gearRatios = [1.0];
+    finalDrive = 9.7;
+  } else if (c.t === 'S') {
+    gearRatios = [3.2, 2.15, 1.62, 1.28, 1.05, 0.88, 0.74];
+    finalDrive = 3.30;
+  } else if (c.t === 'A') {
+    gearRatios = [3.4, 2.22, 1.60, 1.22, 0.98, 0.82, 0.70];
+    finalDrive = 3.40;
+  } else if (isTurbo && c.t !== 'D') {
+    gearRatios = [3.8, 2.30, 1.55, 1.15, 0.92, 0.76];
+    finalDrive = isAWD ? 3.45 : 3.55;
+  } else {
+    gearRatios = [3.6, 2.20, 1.55, 1.15, 0.90, 0.72];
+    finalDrive = isAWD ? 3.45 : c.d === 'RWD' ? 3.55 : 3.9;
+  }
+
+  // Weight bias (front %)
+  const weightBias = isAWD ? 0.55 : c.d === 'RWD' ? 0.52 : 0.62;
+
+  // Launch RPM
+  const launchRpm = redline * (c.d === 'RWD' && c.h > 500 ? 0.35 : 0.5);
+
+  // Boost lag
+  const boostLag = isTurbo ? 0.6 + (c.h / 1500) * 0.6 : 0;
+
+  return {
+    id: c.i, brand: c.b, model: c.m, year: c.y, tier: c.t,
+    hp: c.h, mass: c.k, drivetrain: c.d, price: c.p,
+    grip: t.grip, cd: c.cd || t.cd, frontalArea: c.fa || t.fa,
+    clA: c.cl !== undefined ? c.cl : t.clA,
+    redline, torqueNm, gearRatios, finalDrive, weightBias, launchRpm, boostLag,
+    wheelRadius: 0.33, wheelbase: 2.7, cgHeight: 0.55,
+    isEV, isTurbo,
+  };
+});
+console.log(`Loaded ${CARS.length} cars`);
+
+// ============ BOSSES ============
+const BOSSES = [
+  {name:'Дима',carId:'civic_si',reward:3000},
+  {name:'Стиляга',carId:'gt86',reward:4000},
+  {name:'Турбо-Ваня',carId:'wrx',reward:6000},
+  {name:'Американец',carId:'mustang',reward:8000},
+  {name:'Ханс',carId:'golfr',reward:11000},
+  {name:'М-спорт',carId:'m3',reward:15000},
+  {name:'Годзилла',carId:'gtr',reward:22000},
+  {name:'Итальянец',carId:'huracan',reward:35000},
+  {name:'Феррари-Дон',carId:'488',reward:50000},
+  {name:'Макларен-Призрак',carId:'720s',reward:70000},
+  {name:'Бугатти-Босс',carId:'chiron',reward:120000},
+  {name:'КОРОЛЬ ДРАГА',carId:'jesko',reward:250000},
+];
+
+// ============ UPGRADES ============
+const UPGRADES = ['engine','turbo','tires','weight','gear','aero','nitrous'];
+const UPGRADE_LABELS = {engine:'Двигатель',turbo:'Турбина',tires:'Шины',weight:'Вес',gear:'КПП',aero:'Аэро',nitrous:'Нитро'};
+const UPGRADE_COSTS = [1000,2500,5000,10000,20000];
+
+// ============ STATE ============
+let state = {
+  mode:'WORLD',
+  money:5000,
+  owned:['civic_si'],
+  currentCar:'civic_si',
+  upgrades:{},
+  bossesBeaten:0,
+  records:{},  // { carId_dist: {time, speed} }
+  player:{x:0,y:-200,angle:-Math.PI/2,speed:0},
+  keys:{},
+  race:null,
+  nearMarker:null,
+  weather:{type:'clear', temp:22, timer:80, rainParticles:[]},
+  wanted:0,
+  wantedTimer:0,
+  message:null,
+  lastDistrict:null,
+  shake:0,
+};
+
+function ensureUpgrades(id){
+  if(!state.upgrades[id]) state.upgrades[id]={engine:0,turbo:0,tires:0,weight:0,gear:0,aero:0,nitrous:0};
+}
+function save(){
+  try{ localStorage.setItem('dragSaveV5', JSON.stringify({
+    money:state.money, owned:state.owned, currentCar:state.currentCar,
+    upgrades:state.upgrades, bossesBeaten:state.bossesBeaten, records:state.records
+  })); } catch(e){}
+}
+function load(){
+  try{ const d = JSON.parse(localStorage.getItem('dragSaveV5')); if(d) Object.assign(state, d); } catch(e){}
+}
+function getCar(id){ return CARS.find(c=>c.id===id); }
+
+// Cached car stats
+const statsCache = new Map();
+function getCarStats(id){
+  ensureUpgrades(id);
+  const u = state.upgrades[id];
+  const weatherKey = state.weather.type === 'rain' ? 'R' : 'C';
+  const key = id + '|' + u.engine + u.turbo + u.tires + u.weight + u.gear + u.aero + u.nitrous + '|' + weatherKey;
+  const cached = statsCache.get(key);
+  if (cached) return cached;
+
+  const c = getCar(id);
+  const rainGrip = state.weather.type === 'rain' ? 0.85 : 1.0;
+  const aeroClA = c.clA * (1 + u.aero * 0.25);
+  const aeroCd = c.cd * (1 + u.aero * 0.015);
+
+  const result = {...c,
+    effHp: c.hp*(1+u.engine*0.10)*(1+u.turbo*0.15),
+    effTorque: c.torqueNm*(1+u.engine*0.10)*(1+u.turbo*0.15),
+    effMass: c.mass*(1-u.weight*0.03),
+    effGrip: c.grip*(1+u.tires*0.10)*rainGrip,
+    effCd: aeroCd, effClA: aeroClA,
+    shiftTime: Math.max(0.06, 0.25-u.gear*0.04),
+    nitrousLevel: u.nitrous,
+    boostLag: Math.max(0.2, c.boostLag * (1 - u.turbo * 0.08)),
+  };
+  statsCache.set(key, result);
+  if (statsCache.size > 80) statsCache.delete(statsCache.keys().next().value);
+  return result;
+}
+function clearStatsCache(){ statsCache.clear(); }
+
+// ============ WORLD ============
+const WORLD_SIZE = 4000;
+const CHUNK_SIZE = 750;
+const DISTRICTS = [
+  {name:'ЦЕНТР', x:0, y:0, r:1400, type:'city'},
+  {name:'СПАЛЬНЫЙ', x:-2500, y:-1500, r:1100, type:'residential'},
+  {name:'ПРОМЗОНА', x:2500, y:-1500, r:1000, type:'industrial'},
+  {name:'ПРИГОРОД', x:-2500, y:2000, r:1300, type:'suburb'},
+  {name:'ПАРК', x:2000, y:2000, r:1000, type:'park'},
+  {name:'ПОРТ', x:0, y:-3000, r:800, type:'port'},
+];
+
+function getDistrict(x, y){
+  for (const d of DISTRICTS) {
+    const dx = x-d.x, dy = y-d.y;
+    if (dx*dx + dy*dy < d.r*d.r) return d;
+  }
+  return null;
+}
+
+// ============ BUILDINGS ============
+const buildings = [];
+const trees = [];
+const waterBodies = [{x:2000,y:2000,r:380},{x:-3200,y:3200,r:500},{x:3200,y:3200,r:450}];
+const BUILDING_CELL = 250;
+const buildingHash = new Map();
+
+function generateWorld(){
+  const occupied = new Set();
+  for (const d of DISTRICTS) {
+    if (d.type === 'park') continue;
+    const count = d.type==='city'?70 : d.type==='residential'?50 : d.type==='industrial'?30 : d.type==='port'?22 : 40;
+    let placed = 0, attempts = 0;
+    while (placed < count && attempts < count * 8) {
+      attempts++;
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * d.r * 0.9;
+      const x = Math.floor(d.x + Math.cos(a) * r);
+      const y = Math.floor(d.y + Math.sin(a) * r);
+      if (Math.abs(x) < 180 || Math.abs(y) < 180) continue;
+      if (Math.abs(Math.abs(x)-3000) < 130) continue;
+      if (Math.abs(Math.abs(y)-3000) < 130) continue;
+      const isCity = d.type === 'city';
+      const w = isCity ? 70+Math.random()*50 : 45+Math.random()*40;
+      const h = isCity ? 70+Math.random()*70 : 40+Math.random()*40;
+      let overlap = false;
+      for (let cx = Math.floor((x-w/2)/60); cx <= Math.floor((x+w/2)/60); cx++)
+        for (let cy = Math.floor((y-h/2)/60); cy <= Math.floor((y+h/2)/60); cy++)
+          if (occupied.has(`${cx},${cy}`)) { overlap = true; break; }
+      if (overlap) continue;
+      for (let cx = Math.floor((x-w/2)/60); cx <= Math.floor((x+w/2)/60); cx++)
+        for (let cy = Math.floor((y-h/2)/60); cy <= Math.floor((y+h/2)/60); cy++)
+          occupied.add(`${cx},${cy}`);
+      const shade = d.type==='industrial'?90+Math.random()*40 : d.type==='port'?70+Math.random()*50 : 55+Math.random()*65;
+      const b = {x, y, w, h, shade, type:d.type};
+      buildings.push(b);
+      const hk = `${Math.floor(x/BUILDING_CELL)},${Math.floor(y/BUILDING_CELL)}`;
+      if (!buildingHash.has(hk)) buildingHash.set(hk, []);
+      buildingHash.get(hk).push(b);
+      placed++;
+    }
+  }
+  const park = DISTRICTS.find(d => d.type === 'park');
+  if (park) for (let i = 0; i < 70; i++) {
+    const a = Math.random()*Math.PI*2, r = Math.random()*park.r*0.85;
+    trees.push({x: park.x+Math.cos(a)*r, y: park.y+Math.sin(a)*r, r: 18+Math.random()*20});
+  }
+  for (let i = 0; i < 100; i++) {
+    const x = (Math.random()-0.5) * WORLD_SIZE * 2;
+    const y = (Math.random()-0.5) * WORLD_SIZE * 2;
+    if (Math.hypot(x, y) < 3600) continue;
+    trees.push({x, y, r: 15+Math.random()*18});
+  }
+}
+generateWorld();
+
+function getBuildingsNear(x, y, r){
+  const result = [];
+  const minCx = Math.floor((x-r)/BUILDING_CELL), maxCx = Math.floor((x+r)/BUILDING_CELL);
+  const minCy = Math.floor((y-r)/BUILDING_CELL), maxCy = Math.floor((y+r)/BUILDING_CELL);
+  for (let cx = minCx; cx <= maxCx; cx++) {
+    for (let cy = minCy; cy <= maxCy; cy++) {
+      const arr = buildingHash.get(`${cx},${cy}`);
+      if (arr) for (const b of arr) result.push(b);
+    }
+  }
+  return result;
+}
+
+// ============ CHUNKS ============
+const chunkCache = new Map();
+const MAX_CHUNKS = 14;
+const CHUNK_RENDER_SCALE = isMobile ? 0.7 : 1.0;
+let chunkVersion = 0;
+
+function getChunk(cx, cy){
+  const key = `${cx},${cy},${chunkVersion}`;
+  if (chunkCache.has(key)) {
+    const v = chunkCache.get(key);
+    chunkCache.delete(key); chunkCache.set(key, v);
+    return v;
+  }
+  const c = renderChunk(cx, cy);
+  chunkCache.set(key, c);
+  if (chunkCache.size > MAX_CHUNKS) {
+    chunkCache.delete(chunkCache.keys().next().value);
+  }
+  return c;
+}
+
+function renderChunk(cx, cy){
+  const size = CHUNK_SIZE * CHUNK_RENDER_SCALE;
+  const cvs = document.createElement('canvas');
+  cvs.width = size; cvs.height = size;
+  const c = cvs.getContext('2d', { alpha: false });
+  c.scale(CHUNK_RENDER_SCALE, CHUNK_RENDER_SCALE);
+  const x0 = cx * CHUNK_SIZE, y0 = cy * CHUNK_SIZE;
+  const isNight = state.weather.type === 'night';
+  const isRain = state.weather.type === 'rain';
+
+  const dist = getDistrict(x0 + CHUNK_SIZE/2, y0 + CHUNK_SIZE/2);
+  let baseCol = isNight ? '#0a0f1a' : '#16241a';
+  if (dist) {
+    if (dist.type==='park') baseCol = isNight?'#0a2a10':'#1a4a1a';
+    else if (dist.type==='industrial') baseCol = isNight?'#1a1510':'#3a2a1a';
+    else if (dist.type==='port') baseCol = isNight?'#101520':'#1a2a3a';
+    else if (dist.type==='suburb') baseCol = isNight?'#0a1a1a':'#1a3020';
+  }
+  c.fillStyle = baseCol;
+  c.fillRect(0, 0, CHUNK_SIZE, CHUNK_SIZE);
+
+  c.fillStyle = isNight ? '#1a1a20' : '#2a2a30';
+  if (y0 <= 75 && y0 + CHUNK_SIZE >= -75) c.fillRect(0, -75 - y0, CHUNK_SIZE, 150);
+  if (x0 <= 75 && x0 + CHUNK_SIZE >= -75) c.fillRect(-75 - x0, 0, 150, CHUNK_SIZE);
+
+  const ring = 3000, rw = 150;
+  if (y0 <= ring+rw/2 && y0 + CHUNK_SIZE >= ring-rw/2) c.fillRect(0, ring-rw/2-y0, CHUNK_SIZE, rw);
+  if (y0 <= -ring+rw/2 && y0 + CHUNK_SIZE >= -ring-rw/2) c.fillRect(0, -ring-rw/2-y0, CHUNK_SIZE, rw);
+  if (x0 <= ring+rw/2 && x0 + CHUNK_SIZE >= ring-rw/2) c.fillRect(ring-rw/2-x0, 0, rw, CHUNK_SIZE);
+  if (x0 <= -ring+rw/2 && x0 + CHUNK_SIZE >= -ring-rw/2) c.fillRect(-ring-rw/2-x0, 0, rw, CHUNK_SIZE);
+
+  for (const w of waterBodies) {
+    if (w.x + w.r < x0 || w.x - w.r > x0+CHUNK_SIZE) continue;
+    if (w.y + w.r < y0 || w.y - w.r > y0+CHUNK_SIZE) continue;
+    c.fillStyle = isNight ? '#0a1830' : '#2a5a9a';
+    c.beginPath(); c.arc(w.x-x0, w.y-y0, w.r, 0, Math.PI*2); c.fill();
+  }
+
+  c.fillStyle = isNight ? '#0a3010' : '#2a7a2a';
+  for (const t of trees) {
+    if (t.x < x0 - t.r || t.x > x0+CHUNK_SIZE+t.r) continue;
+    if (t.y < y0 - t.r || t.y > y0+CHUNK_SIZE+t.r) continue;
+    c.beginPath(); c.arc(t.x-x0, t.y-y0, t.r, 0, Math.PI*2); c.fill();
+  }
+
+  const nearbyBuildings = getBuildingsNear(x0+CHUNK_SIZE/2, y0+CHUNK_SIZE/2, CHUNK_SIZE + 100);
+  for (const b of nearbyBuildings) {
+    if (b.x + b.w/2 < x0 || b.x - b.w/2 > x0+CHUNK_SIZE) continue;
+    if (b.y + b.h/2 < y0 || b.y - b.h/2 > y0+CHUNK_SIZE) continue;
+    c.fillStyle = `rgb(${b.shade},${b.shade},${b.shade+10})`;
+    c.fillRect(b.x-b.w/2-x0, b.y-b.h/2-y0, b.w, b.h);
+    c.strokeStyle = isNight ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.4)';
+    c.lineWidth = 2;
+    c.strokeRect(b.x-b.w/2-x0, b.y-b.h/2-y0, b.w, b.h);
+    if (isNight) {
+      c.fillStyle = 'rgba(255,220,80,0.7)';
+      const cols = Math.floor(b.w / 22);
+      const rows = Math.floor(b.h / 22);
+      const seed = Math.floor(b.x * 7 + b.y * 13);
+      for (let wc = 0; wc < cols; wc++)
+        for (let wr = 0; wr < rows; wr++) {
+          if ((seed + wc*7 + wr*13) % 3 !== 0) continue;
+          c.fillRect(b.x-b.w/2-x0 + 8 + wc*22, b.y-b.h/2-y0 + 8 + wr*22, 6, 8);
+        }
+    }
+  }
+  return { cvs, x: x0, y: y0 };
+}
+
+// Pre-render initial chunks
+let preRenderQueue = [];
+function queueChunksAround(x, y){
+  const cx0 = Math.floor((x - 1500) / CHUNK_SIZE);
+  const cx1 = Math.floor((x + 1500) / CHUNK_SIZE);
+  const cy0 = Math.floor((y - 1500) / CHUNK_SIZE);
+  const cy1 = Math.floor((y + 1500) / CHUNK_SIZE);
+  for (let cy = cy0; cy <= cy1; cy++)
+    for (let cx = cx0; cx <= cx1; cx++)
+      preRenderQueue.push([cx, cy]);
+}
+function processPreRender(){
+  if (preRenderQueue.length === 0) return;
+  const [cx, cy] = preRenderQueue.shift();
+  getChunk(cx, cy);
+  if (preRenderQueue.length > 0) requestAnimationFrame(processPreRender);
+}
+
+// ============ TRAFFIC / PEDESTRIANS / POLICE ============
+const TRAFFIC_COLORS = ['#8844aa','#44aa88','#aa8844','#444488','#884444','#cccccc','#aa3366','#3366aa'];
+const traffic = [];
+const pedestrians = [];
+const police = [];
+
+function spawnTraffic(){
+  const p = state.player;
+  const a = Math.random() * Math.PI * 2;
+  const dist = 1400 + Math.random() * 400;
+  traffic.push({
+    x: p.x + Math.cos(a) * dist, y: p.y + Math.sin(a) * dist,
+    angle: Math.random() * Math.PI * 2,
+    speed: 150 + Math.random() * 180,
+    color: TRAFFIC_COLORS[Math.floor(Math.random() * TRAFFIC_COLORS.length)],
+    timer: 4 + Math.random() * 8,
+  });
+}
+function updateTraffic(dt){
+  const p = state.player;
+  const maxT = QP[quality].traffic;
+  for (let i = traffic.length - 1; i >= 0; i--) {
+    const t = traffic[i];
+    const dx = t.x - p.x, dy = t.y - p.y;
+    if (dx*dx + dy*dy > 3240000) { traffic.splice(i, 1); continue; }
+    t.timer -= dt;
+    if (t.timer < 0) { t.angle += (Math.random()-0.5) * 0.8; t.timer = 4 + Math.random() * 6; }
+    t.x += Math.cos(t.angle) * t.speed * dt;
+    t.y += Math.sin(t.angle) * t.speed * dt;
+  }
+  if (traffic.length < maxT && Math.random() < 0.02) spawnTraffic();
+}
+
+function spawnPedestrian(){
+  const p = state.player;
+  const arr = getBuildingsNear(p.x, p.y, 900);
+  if (arr.length === 0) return;
+  const b = arr[Math.floor(Math.random() * arr.length)];
+  pedestrians.push({
+    x: b.x + (Math.random()-0.5) * 100,
+    y: b.y + (Math.random()-0.5) * 100,
+    angle: Math.random() * Math.PI * 2,
+    speed: 25 + Math.random() * 30,
+    color: `hsl(${Math.random()*360},70%,60%)`,
+    timer: 1 + Math.random() * 3,
+  });
+}
+function updatePedestrians(dt){
+  const p = state.player;
+  const maxP = QP[quality].peds;
+  for (let i = pedestrians.length - 1; i >= 0; i--) {
+    const ped = pedestrians[i];
+    const dx = ped.x - p.x, dy = ped.y - p.y;
+    if (dx*dx + dy*dy > 2250000) { pedestrians.splice(i, 1); continue; }
+    ped.timer -= dt;
+    if (ped.timer < 0) { ped.angle += (Math.random()-0.5) * 2; ped.timer = 1 + Math.random() * 3; }
+    ped.x += Math.cos(ped.angle) * ped.speed * dt;
+    ped.y += Math.sin(ped.angle) * ped.speed * dt;
+  }
+  if (pedestrians.length < maxP && Math.random() < 0.05) spawnPedestrian();
+}
+
+function spawnPolice(){
+  const p = state.player;
+  const a = Math.random() * Math.PI * 2;
+  const dist = 900 + Math.random() * 400;
+  police.push({
+    x: p.x + Math.cos(a) * dist, y: p.y + Math.sin(a) * dist,
+    angle: a + Math.PI, speed: 0,
+    maxSpeed: 340 + state.wanted * 70,
+    catchTimer: 0, siren: Math.random() * 10,
+  });
+}
+function updatePolice(dt){
+  const p = state.player;
+  const target = state.wanted > 0 ? Math.min(state.wanted + 1, 5) : 1;
+  while (police.length < target) spawnPolice();
+  while (police.length > target) police.pop();
+  for (let i = police.length - 1; i >= 0; i--) {
+    const cop = police[i];
+    cop.siren += dt;
+    if (state.wanted > 0) {
+      const dx = p.x - cop.x, dy = p.y - cop.y;
+      const dist2 = dx*dx + dy*dy;
+      if (dist2 > 6250000) { police.splice(i, 1); continue; }
+      const targetAngle = Math.atan2(dy, dx);
+      let diff = targetAngle - cop.angle;
+      while (diff > Math.PI) diff -= Math.PI*2;
+      while (diff < -Math.PI) diff += Math.PI*2;
+      cop.angle += Math.max(-2.5*dt, Math.min(2.5*dt, diff));
+      if (dist2 > 32400) cop.speed = Math.min(cop.maxSpeed, cop.speed + 700*dt);
+      else cop.speed = Math.max(180, cop.speed - 500*dt);
+      if (dist2 < 8100) {
+        cop.catchTimer += dt;
+        if (cop.catchTimer > 1.5) { caught(); break; }
+      } else cop.catchTimer = Math.max(0, cop.catchTimer - dt*2);
+    } else {
+      if (Math.random() < 0.02) cop.angle += (Math.random()-0.5) * 1.2;
+      cop.speed = 150;
+      if (Math.hypot(cop.x-p.x, cop.y-p.y) > 1800) { police.splice(i, 1); continue; }
+    }
+    cop.x += Math.cos(cop.angle) * cop.speed * dt;
+    cop.y += Math.sin(cop.angle) * cop.speed * dt;
+  }
+}
+function addWanted(n){
+  state.wanted = Math.min(5, state.wanted + n);
+  state.wantedTimer = 0;
+  showMessage(`🚨 Розыск: ${'★'.repeat(state.wanted)}`, '#ffcc00');
+}
+function caught(){
+  const fine = 500 * Math.max(1, state.wanted);
+  state.money = Math.max(0, state.money - fine);
+  const stars = state.wanted;
+  state.wanted = 0; state.wantedTimer = 0;
+  police.length = 0;
+  state.player.x = 0; state.player.y = -200; state.player.speed = 0;
+  save();
+  showMessage(`🚔 АРЕСТ! -$${fine}`, '#ff4444', 3);
+}
+function showMessage(text, color, dur){
+  state.message = {text, color: color||'#fff', timer: dur||2.5};
+}
+function updateWanted(dt){
+  if (state.wanted > 0) {
+    let nearCop = false;
+    for (const c of police) {
+      const dx = c.x - state.player.x, dy = c.y - state.player.y;
+      if (dx*dx + dy*dy < 490000) { nearCop = true; break; }
+    }
+    if (!nearCop) {
+      state.wantedTimer += dt;
+      if (state.wantedTimer > 15) { state.wanted--; state.wantedTimer = 0; }
+    } else state.wantedTimer = 0;
+  }
+}
+
+// ============ PHYSICS ============
+// Realistic drag physics:
+// - Torque curve (NA / Turbo / EV)
+// - Turbo lag with boost
+// - Weight transfer under acceleration
+// - Aerodynamic drag + downforce
+// - Tire temperature
+// - Air density by temp
+// - Drivetrain losses + rotational inertia
+function stepPhysics(car, st, dt, throttle, weather){
+  const idle = car.isEV ? 0 : 900;
+  const redline = car.redline;
+  const peakRpm = redline * 0.55;
+
+  // Turbo boost lag
+  if (car.isTurbo && throttle) {
+    const target = st.rpm > 2200 ? Math.min(1, (st.rpm - 2200) / (peakRpm - 2200)) : 0;
+    st.boost = (st.boost || 0) + (target - (st.boost || 0)) * (dt / car.boostLag);
+  } else {
+    st.boost = (st.boost || 0) * (1 - dt * 3);
+  }
+
+  // Torque curve
+  let torqueFactor;
+  if (car.isEV) {
+    torqueFactor = st.rpm < peakRpm ? 1 : 0.7 + 0.3 * (1 - (st.rpm - peakRpm) / (redline - peakRpm));
+  } else if (car.isTurbo) {
+    const peakBoostRpm = peakRpm * 0.85;
+    if (st.rpm < peakBoostRpm) torqueFactor = 0.5 + 0.5 * (st.rpm / peakBoostRpm);
+    else torqueFactor = Math.max(0.6, 1 - 0.25 * ((st.rpm - peakBoostRpm) / (redline - peakBoostRpm)));
+    torqueFactor *= (0.7 + 0.3 * st.boost);
+  } else {
+    if (st.rpm < peakRpm) torqueFactor = 0.55 + 0.45 * (st.rpm / peakRpm);
+    else torqueFactor = Math.max(0.5, 1 - 0.3 * Math.pow((st.rpm - peakRpm) / (redline - peakRpm), 2));
+  }
+
+  let engineTorque = car.effTorque * torqueFactor;
+  if (!throttle || st.shiftTimer > 0) engineTorque = 0;
+  if (st.nitroActive && throttle) engineTorque *= 1.4 + (st.nitrousLevel || 0) * 0.1;
+
+  const gr = car.gearRatios[Math.min(st.gear - 1, car.gearRatios.length - 1)];
+  const fd = car.finalDrive;
+  const loss = car.drivetrain === 'AWD' ? 0.85 : car.drivetrain === 'RWD' ? 0.90 : 0.88;
+  let wheelForce = (engineTorque * gr * fd * loss) / car.wheelRadius;
+
+  // Aerodynamics
+  const airDensity = 1.225 * (273 / (273 + weather.temp));
+  const drag = 0.5 * airDensity * car.effCd * car.frontalArea * st.speed * st.speed;
+  const downforce = 0.5 * airDensity * car.effClA * st.speed * st.speed;
+
+  // Weight transfer + downforce
+  const staticW = car.effMass * 9.81;
+  const transfer = wheelForce * (car.cgHeight / car.wheelbase);
+  let drivenLoad;
+  if (car.drivetrain === 'AWD') drivenLoad = staticW * 0.95 + downforce;
+  else if (car.drivetrain === 'RWD') drivenLoad = staticW * (1 - car.weightBias) + transfer * 0.9 + downforce * 0.7;
+  else drivenLoad = staticW * car.weightBias - transfer * 0.9 + downforce * 0.7;
+
+  // Tire temperature
+  st.tireTemp = st.tireTemp || 20;
+  const heatRate = st.speed > 1 ? Math.abs(wheelForce - drivenLoad * car.effGrip) * 0.002 : 0;
+  st.tireTemp += (heatRate - (st.tireTemp - 20) * 0.15) * dt;
+  st.tireTemp = Math.max(20, Math.min(140, st.tireTemp));
+  const tempGrip = st.tireTemp < 40 ? 0.7 + (st.tireTemp - 20) * 0.015
+                  : st.tireTemp > 100 ? 1.0 - (st.tireTemp - 100) * 0.005
+                  : 1.0;
+
+  const maxTraction = drivenLoad * car.effGrip * tempGrip;
+  st.slipping = wheelForce > maxTraction && st.speed > 0.5;
+  if (wheelForce > maxTraction) wheelForce = maxTraction;
+
+  const rollRes = car.effMass * 9.81 * 0.013;
+  const net = wheelForce - drag - rollRes;
+  const inertiaFactor = car.drivetrain === 'AWD' ? 1.15 : car.drivetrain === 'RWD' ? 1.08 : 1.05;
+  st.speed = Math.max(0, st.speed + (net / (car.effMass * inertiaFactor)) * dt);
+  st.dist += st.speed * dt;
+
+  // RPM
+  const wheelRpm = (st.speed / (2 * Math.PI * car.wheelRadius)) * 60;
+  let rpm = car.isEV ? st.speed * 40 : wheelRpm * gr * fd;
+  if (st.speed < 1.5 && throttle && st.shiftTimer <= 0) rpm = Math.max(rpm, car.launchRpm);
+  st.rpm = Math.max(idle, Math.min(redline, rpm));
+
+  if (st.shiftTimer > 0) st.shiftTimer -= dt;
+  if (st.nitroActive) {
+    st.nitroTimer -= dt;
+    if (st.nitroTimer <= 0) st.nitroActive = false;
+  }
+}
+
+function makeRaceState(carStats){
+  return {
+    speed: 0, dist: 0, gear: 1, rpm: 900, time: 0,
+    shiftTimer: 0, nitroActive: false, nitroTimer: 0,
+    boost: 0, tireTemp: 20, slipping: false,
+    car: carStats,
+  };
+}
+
+function autoShift(r){
+  if (r.car.isEV) return;
+  if (r.rpm > r.car.redline * 0.96 && r.gear < r.car.gearRatios.length && r.shiftTimer <= 0) {
+    r.gear++;
+    r.shiftTimer = r.car.shiftTime;
+  }
+}
+
+function updateRacer(r, dt, auto){
+  stepPhysics(r.car, r, dt, true, state.weather);
+  r.time += dt;
+  if (auto) autoShift(r);
+}
+
+// ============ RACE ============
+const DISTANCES = { 'race_201': 201, 'race_402': 402, 'race_804': 804, 'race_1609': 1609 };
+
+function startRace(boss, distType){
+  addWanted(1);
+  const distance = distType ? DISTANCES[distType] || 402 : 402;
+  const pStats = getCarStats(state.currentCar);
+  let oStats, oName;
+  if (boss) {
+    oStats = getCarStats(boss.carId);
+    oStats.effHp *= 1.08; oStats.effTorque *= 1.08;
+    oName = boss.name;
+  } else {
+    const own = getCar(state.currentCar);
+    const pool = CARS.filter(c => c.id !== own.id && Math.abs(c.hp - own.hp) < 400);
+    const o = pool.length ? pool[Math.floor(Math.random()*pool.length)] : CARS[Math.floor(Math.random()*CARS.length)];
+    oStats = getCarStats(o.id);
+    oName = `${o.brand} ${o.model}`;
+  }
+  state.race = {
+    boss, opponentName: oName, distance,
+    player: makeRaceState(pStats),
+    opponent: makeRaceState(oStats),
+    finished: false, playerWon: false, countdown: 3.5, reward: 0,
+    shake: 0,
+  };
+  state.mode = 'RACE';
+}
+
+function updateRace(dt){
+  const r = state.race;
+  if (!r) return;
+  if (r.countdown > 0.5) { r.countdown -= dt; updateEngineSound(1200, false); return; }
+  if (r.countdown > 0) {
+    r.countdown -= dt;
+    updateEngineSound(3000 + Math.random()*1500, false);
+    return;
+  }
+  if (r.finished) return;
+  updateRacer(r.player, dt, false);
+  updateRacer(r.opponent, dt, true);
+  updateEngineSound(r.player.rpm, r.player.shiftTimer <= 0 && !r.player.slipping);
+
+  // Camera shake on slip
+  if (r.player.slipping) r.shake = Math.min(1, r.shake + dt*3);
+  else r.shake = Math.max(0, r.shake - dt*2);
+
+  if (r.player.dist >= r.distance || r.opponent.dist >= r.distance) {
+    r.finished = true;
+    r.playerWon = r.player.dist >= r.distance &&
+      (r.opponent.dist < r.distance || r.player.time < r.opponent.time);
+    if (r.playerWon) {
+      r.reward = r.boss ? r.boss.reward : (r.distance <= 201 ? 600 : r.distance <= 402 ? 1200 : r.distance <= 804 ? 2000 : 3500);
+      state.money += r.reward;
+      if (r.boss && r.boss === BOSSES[state.bossesBeaten]) state.bossesBeaten++;
+
+      // Record
+      const recKey = state.currentCar + '_' + r.distance;
+      if (!state.records[recKey] || r.player.time < state.records[recKey].time) {
+        state.records[recKey] = { time: r.player.time, speed: r.player.speed };
+      }
+      save();
+    }
+    state.mode = 'RESULT';
+    updateEngineSound(0, false);
+  }
+}
+
+// ============ WEATHER ============
+function updateWeather(dt){
+  const w = state.weather;
+  w.timer -= dt;
+  if (w.timer <= 0) {
+    w.timer = 90 + Math.random() * 60;
+    // Time-of-day influence
+    const h = new Date().getHours();
+    const isNightHour = h >= 20 || h < 6;
+    const roll = Math.random();
+    if (isNightHour) w.type = roll < 0.7 ? 'night' : roll < 0.9 ? 'rain' : 'clear';
+    else w.type = roll < 0.65 ? 'clear' : roll < 0.88 ? 'rain' : 'night';
+    w.temp = w.type === 'night' ? 12 + Math.random()*10
+           : w.type === 'rain' ? 14 + Math.random()*8
+           : 20 + Math.random()*15;
+    chunkVersion++;
+    chunkCache.clear();
+    clearStatsCache();
+    if (w.type === 'rain') {
+      w.rainParticles = [];
+      const count = QP[quality].rain;
+      for (let i = 0; i < count; i++) w.rainParticles.push({
+        x: Math.random()*W, y: Math.random()*H, len: 10+Math.random()*15, sp: 400+Math.random()*400
+      });
+    }
+  }
+  if (w.type === 'rain') {
+    for (const p of w.rainParticles) {
+      p.y += p.sp * dt; p.x -= p.sp * dt * 0.3;
+      if (p.y > H) { p.y = -20; p.x = Math.random()*W; }
+      if (p.x < -20) p.x = W+20;
+    }
+  }
+}
+
+// ============ COLLISION ============
+function collideBuildings(p){
+  const arr = getBuildingsNear(p.x, p.y, 200);
+  for (const b of arr) {
+    const bx0 = b.x - b.w/2 - 15, bx1 = b.x + b.w/2 + 15;
+    const by0 = b.y - b.h/2 - 15, by1 = b.y + b.h/2 + 15;
+    if (p.x > bx0 && p.x < bx1 && p.y > by0 && p.y < by1) {
+      const dL = p.x - bx0, dR = bx1 - p.x;
+      const dT = p.y - by0, dB = by1 - p.y;
+      const m = Math.min(dL, dR, dT, dB);
+      if (m === dL) p.x = bx0 - 5;
+      else if (m === dR) p.x = bx1 + 5;
+      else if (m === dT) p.y = by0 - 5;
+      else p.y = by1 + 5;
+      p.speed *= 0.4;
+    }
+  }
+}
+
+// ============ WORLD UPDATE ============
+function updateWorld(dt){
+  const p = state.player;
+  const k = state.keys;
+  const up = k['w']||k['arrowup']||k['_up'];
+  const dn = k['s']||k['arrowdown']||k['_down'];
+  const lf = k['a']||k['arrowleft']||k['_left'];
+  const rt = k['d']||k['arrowright']||k['_right'];
+
+  if (up) p.speed = Math.min(700, p.speed + 900*dt);
+  else if (dn) p.speed = Math.max(0, p.speed - 1400*dt);
+  else p.speed = Math.max(0, p.speed - 500*dt);
+
+  const turn = (lf?-1:0)+(rt?1:0);
+  const sf = Math.min(1, p.speed/120);
+  p.angle += turn * sf * 2.8 * dt;
+  p.x += Math.cos(p.angle) * p.speed * dt;
+  p.y += Math.sin(p.angle) * p.speed * dt;
+
+  collideBuildings(p);
+
+  const lim = WORLD_SIZE - 100;
+  p.x = Math.max(-lim, Math.min(lim, p.x));
+  p.y = Math.max(-lim, Math.min(lim, p.y));
+
+  for (const cop of police) {
+    const dx = cop.x - p.x, dy = cop.y - p.y;
+    if (dx*dx + dy*dy < 4225 && p.speed > 200 && state.wanted < 5) {
+      addWanted(2);
+      const a = Math.atan2(dy, dx);
+      cop.x += Math.cos(a) * 250; cop.y += Math.sin(a) * 250;
+      cop.speed = 0; p.speed *= 0.5;
+    }
+  }
+
+  state.nearMarker = null;
+  for (const m of markers) {
+    if (m.type === 'boss' && state.bossesBeaten >= BOSSES.length) continue;
+    const dx = p.x - m.x, dy = p.y - m.y;
+    if (dx*dx + dy*dy < 16900) { state.nearMarker = m; break; }
+  }
+
+  const d = getDistrict(p.x, p.y);
+  const dName = d ? d.name : 'ОКРАИНА';
+  if (dName !== state.lastDistrict) {
+    state.lastDistrict = dName;
+    showMessage(`📍 ${dName}`, '#88ccff', 2);
+  }
+
+  updateEngineSound(1200 + p.speed * 10, p.speed > 5);
+  updateTraffic(dt);
+  updatePedestrians(dt);
+  updatePolice(dt);
+  updateWanted(dt);
+  updateWeather(dt);
+
+  if (state.message) {
+    state.message.timer -= dt;
+    if (state.message.timer <= 0) state.message = null;
+  }
+}
+
+// ============ MARKERS ============
+const markers = [
+  {x:0, y:-300, type:'garage', label:'ГАРАЖ', color:'#FFD700'},
+  {x:700, y:-1000, type:'dealer', label:'ДИЛЕР', color:'#00CCFF'},
+  {x:1100, y:500, type:'race_402', label:'1/4 МИЛИ', color:'#33FF66'},
+  {x:-1000, y:500, type:'race_804', label:'1/2 МИЛИ', color:'#33FF66'},
+  {x:0, y:1100, type:'race_1609', label:'1 МИЛЯ', color:'#33FF66'},
+  {x:1600, y:-400, type:'race_201', label:'1/8 МИЛИ', color:'#33FF66'},
+  {x:-2500, y:-2000, type:'boss', label:'БОСС', color:'#FF3355'},
+];
+
+// ============ INPUT ============
+addEventListener('keydown', e => {
+  initAudio();
+  const k = e.key.toLowerCase();
+  state.keys[k] = true;
+  if (k === 'e' || k === 'у') interact();
+  if (k === ' ') { e.preventDefault(); doShift(); }
+  if (k === 'n' || k === 'т') doNitro();
+  if (k === 'escape') escape();
+});
+addEventListener('keyup', e => { state.keys[e.key.toLowerCase()] = false; });
+
+function interact(){
+  if (state.mode === 'WORLD' && state.nearMarker) {
+    const t = state.nearMarker.type;
+    if (t === 'garage') state.mode = 'GARAGE';
+    else if (t === 'dealer') state.mode = 'DEALER';
+    else if (t === 'boss') startRace(BOSSES[state.bossesBeaten]);
+    else if (t.startsWith('race_')) startRace(null, t);
+  }
+}
+function doShift(){
+  if (state.mode !== 'RACE' || !state.race) return;
+  const r = state.race.player;
+  if (r.shiftTimer > 0 || r.gear >= r.car.gearRatios.length) return;
+  r.gear++;
+  r.shiftTimer = r.car.shiftTime;
+}
+function doNitro(){
+  if (state.mode !== 'RACE' || !state.race) return;
+  const r = state.race.player;
+  if (r.nitroActive || r.nitroTimer > 0) return;
+  if ((r.car.nitrousLevel || 0) === 0) return;
+  r.nitroActive = true;
+  r.nitroTimer = 1 + r.car.nitrousLevel * 0.3;
+}
+function escape(){
+  if (state.mode === 'GARAGE' || state.mode === 'DEALER' || state.mode === 'RESULT') {
+    state.mode = 'WORLD'; state.race = null;
+  } else if (state.mode === 'RACE') {
+    state.mode = 'WORLD'; state.race = null; updateEngineSound(0, false);
+  }
+}
+
+// ============ MOBILE ============
+let touchBtnState = {};
+function getMobileButtons(){
+  if (!isMobile) return [];
+  const bs = 64, pad = 12;
+  const btns = [];
+  if (state.mode === 'WORLD') {
+    const bx = W - bs*3 - pad*2, by = H - bs*3 - pad*2 - 20;
+    btns.push({id:'_up',    x:bx+bs,   y:by,       w:bs, h:bs, label:'▲'});
+    btns.push({id:'_left',  x:bx,      y:by+bs,    w:bs, h:bs, label:'◄'});
+    btns.push({id:'_down',  x:bx+bs,   y:by+bs*2,  w:bs, h:bs, label:'▼'});
+    btns.push({id:'_right', x:bx+bs*2, y:by+bs,    w:bs, h:bs, label:'►'});
+    btns.push({id:'_act',   x:pad,     y:H-bs-pad*2-20, w:bs*2.5, h:bs, label:'E'});
+  } else if (state.mode === 'RACE') {
+    btns.push({id:'_nitro', x:W-240-pad, y:H-240-pad, w:230, h:100, label:'N2O'});
+    btns.push({id:'_shift', x:W-240-pad, y:H-130-pad, w:230, h:115, label:'SHIFT'});
+  }
+  return btns;
+}
+function drawMobileButtons(){
+  if (!isMobile) return;
+  for (const b of getMobileButtons()) {
+    const pressed = touchBtnState[b.id];
+    ctx.fillStyle = pressed ? 'rgba(80,220,80,0.6)' : 'rgba(255,255,255,0.2)';
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = 'white';
+    setFont(26, 'bold');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.label, b.x+b.w/2, b.y+b.h/2);
+  }
+  ctx.textBaseline = 'alphabetic';
+}
+function isInside(b, x, y){ return x >= b.x && x <= b.x+b.w && y >= b.y && y <= b.y+b.h; }
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault(); initAudio();
+  for (const t of e.changedTouches) {
+    const x = t.clientX, y = t.clientY;
+    let handled = false;
+    for (const b of getMobileButtons()) {
+      if (isInside(b, x, y)) {
+        touchBtnState[b.id] = true;
+        if (b.id === '_shift') doShift();
+        if (b.id === '_nitro') doNitro();
+        if (b.id === '_act') interact();
+        handled = true; break;
+      }
+    }
+    if (handled) continue;
+    if (state.mode === 'RESULT') { state.mode = 'WORLD'; state.race = null; }
+    else if (state.mode === 'GARAGE') handleGarageTap(x, y);
+    else if (state.mode === 'DEALER') handleDealerTap(x, y);
+    else if (state.mode === 'WORLD' && state.nearMarker) interact();
+    else if (state.mode === 'RACE') doShift();
+  }
+}, {passive:false});
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  for (const k in touchBtnState) touchBtnState[k] = false;
+}, {passive:false});
+canvas.addEventListener('click', e => {
+  if (isMobile) return;
+  initAudio();
+  const x = e.clientX, y = e.clientY;
+  if (state.mode === 'RESULT') { state.mode = 'WORLD'; state.race = null; }
+  else if (state.mode === 'GARAGE') handleGarageTap(x, y);
+  else if (state.mode === 'DEALER') handleDealerTap(x, y);
+  else if (state.mode === 'WORLD' && state.nearMarker) interact();
+});
+
+// ============ GARAGE ============
+function drawGarage(){
+  ctx.fillStyle = 'rgba(15,20,15,0.97)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = 'white'; setFont(28, 'bold'); ctx.textAlign = 'center';
+  ctx.fillText('🔧 ГАРАЖ', W/2, 42);
+  ctx.textAlign = 'left'; setFont(18, 'bold');
+  ctx.fillText(`💰 $${state.money}`, 30, 80);
+
+  const listX = 30, listY = 120, listW = Math.min(W*0.38, 340), listH = 52;
+  setFont(13, 'bold'); ctx.fillStyle = '#aaa';
+  ctx.fillText('Твои машины:', listX, listY-8);
+
+  state.owned.forEach((id, i) => {
+    if (i > 7) return;
+    const c = getCar(id);
+    const y = listY + i*(listH+4);
+    const isCur = id === state.currentCar;
+    ctx.fillStyle = isCur ? '#2a4a2a' : '#222';
+    ctx.fillRect(listX, y, listW, listH);
+    ctx.strokeStyle = isCur ? '#66ff66' : '#555';
+    ctx.lineWidth = 2; ctx.strokeRect(listX, y, listW, listH);
+    ctx.fillStyle = 'white'; setFont(13, 'bold');
+    ctx.fillText(`${isCur?'★ ':''}${c.brand} ${c.model}`, listX+10, y+20);
+    setFont(11); ctx.fillStyle = '#bbb';
+    ctx.fillText(`${c.hp} л.с. | ${c.mass} кг | ${c.drivetrain}`, listX+10, y+38);
+  });
+
+  const x = Math.min(W*0.44, W-360), y = listY;
+  const stats = getCarStats(state.currentCar);
+  const u = state.upgrades[state.currentCar];
+  const c = getCar(state.currentCar);
+
+  ctx.fillStyle = 'white'; setFont(20, 'bold');
+  ctx.fillText(`${c.brand} ${c.model}`, x, y);
+  setFont(13); ctx.fillStyle = '#ddd';
+  ctx.fillText(`Мощность: ${Math.round(stats.effHp)} л.с. | Масса: ${Math.round(stats.effMass)} кг`, x, y+22);
+  ctx.fillText(`Cd: ${stats.effCd.toFixed(2)} | ClA: ${stats.effClA.toFixed(2)} | ${c.isEV?'⚡ EV':c.isTurbo?'🌀 Turbo':'NA'}`, x, y+40);
+
+  const panelW = Math.min(380, W - x - 20);
+  const rowH = 40;
+  UPGRADES.forEach((k, i) => {
+    const lvl = u[k] || 0;
+    const yy = y + 58 + i*rowH;
+    const canBuy = lvl < 5 && state.money >= UPGRADE_COSTS[lvl];
+    ctx.fillStyle = canBuy ? '#334433' : (lvl >= 5 ? '#223322' : '#221111');
+    ctx.fillRect(x, yy, panelW, rowH-4);
+    ctx.strokeStyle = lvl >= 5 ? '#ffcc00' : '#666';
+    ctx.strokeRect(x, yy, panelW, rowH-4);
+    ctx.fillStyle = 'white'; setFont(13, 'bold');
+    let txt = `${UPGRADE_LABELS[k]}: ${lvl}/5`;
+    txt += lvl < 5 ? ` — $${UPGRADE_COSTS[lvl]}` : ` — MAX`;
+    ctx.fillText(txt, x+10, yy+16);
+    for (let j = 0; j < 5; j++) {
+      ctx.fillStyle = j < lvl ? '#66dd66' : '#444';
+      ctx.fillRect(x+10+j*(panelW-20)/5, yy+24, (panelW-20)/5-3, 5);
+    }
+  });
+
+  ctx.fillStyle = '#440000';
+  const resetY = y + 58 + UPGRADES.length*rowH + 8;
+  ctx.fillRect(x, resetY, panelW, 32);
+  ctx.fillStyle = '#ff8888'; setFont(12, 'bold'); ctx.textAlign = 'center';
+  ctx.fillText('СБРОСИТЬ ПРОГРЕСС', x+panelW/2, resetY+22);
+  ctx.textAlign = 'left';
+
+  ctx.fillStyle = '#888'; setFont(13); ctx.textAlign = 'center';
+  ctx.fillText('ESC / тап вне элементов — в мир', W/2, H-20);
+}
+
+function handleGarageTap(x, y){
+  const listX = 30, listY = 120, listW = Math.min(W*0.38, 340), listH = 52;
+  state.owned.forEach((id, i) => {
+    if (i > 7) return;
+    const yy = listY + i*(listH+4);
+    if (x >= listX && x <= listX+listW && y >= yy && y <= yy+listH) {
+      state.currentCar = id; ensureUpgrades(id); save();
+    }
+  });
+  const ux = Math.min(W*0.44, W-360), uy = listY;
+  const u = state.upgrades[state.currentCar];
+  const panelW = Math.min(380, W - ux - 20);
+  const rowH = 40;
+  UPGRADES.forEach((k, i) => {
+    const yy = uy + 58 + i*rowH;
+    if (x >= ux && x <= ux+panelW && y >= yy && y <= yy+rowH-4) {
+      const lvl = u[k] || 0;
+      if (lvl < 5 && state.money >= UPGRADE_COSTS[lvl]) {
+        state.money -= UPGRADE_COSTS[lvl]; u[k] = lvl+1;
+        clearStatsCache(); save();
+      }
+    }
+  });
+  const resetY = uy + 58 + UPGRADES.length*rowH + 8;
+  if (x >= ux && x <= ux+panelW && y >= resetY && y <= resetY+32) {
+    if (confirm('Сбросить прогресс?')) { localStorage.removeItem('dragSaveV5'); location.reload(); }
+  }
+}
+
+// ============ DEALER ============
+let dealerScroll = 0;
+function drawDealer(){
+  ctx.fillStyle = 'rgba(10,15,25,0.97)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = 'white'; setFont(28, 'bold'); ctx.textAlign = 'center';
+  ctx.fillText('🏪 ДИЛЕРШИП', W/2, 38);
+  ctx.textAlign = 'left'; setFont(16, 'bold');
+  ctx.fillText(`💰 $${state.money}`, 24, 68);
+
+  const top = 88, rowH = 76, pad = 10;
+  const cols = isMobile ? 2 : 3;
+  const cardW = (W - pad*(cols+1)) / cols;
+  const visible = CARS.slice(dealerScroll, dealerScroll + 24);
+
+  visible.forEach((car, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    const x = pad + col*(cardW+pad);
+    const y = top + row*(rowH+pad);
+    if (y > H - 130) return;
+    const owned = state.owned.includes(car.id);
+    const canBuy = state.money >= car.price;
+    ctx.fillStyle = owned ? '#1a3a1a' : (canBuy ? '#223344' : '#331111');
+    ctx.fillRect(x, y, cardW, rowH);
+    ctx.strokeStyle = owned ? '#66ff66' : (canBuy ? '#4af' : '#555');
+    ctx.lineWidth = 2; ctx.strokeRect(x, y, cardW, rowH);
+    ctx.fillStyle = 'white'; setFont(12, 'bold');
+    ctx.fillText(car.brand, x+6, y+16);
+    ctx.fillStyle = '#ddd';
+    ctx.fillText(car.model, x+6, y+30);
+    ctx.fillStyle = '#bbb'; setFont(10);
+    ctx.fillText(`${car.hp}hp | ${car.mass}kg | ${car.drivetrain}`, x+6, y+46);
+    ctx.fillStyle = owned ? '#66ff88' : '#ffd966';
+    setFont(13, 'bold');
+    ctx.fillText(owned ? '✓ КУПЛЕНО' : `$${car.price}`, x+6, y+64);
+  });
+
+  if (dealerScroll > 0) {
+    ctx.fillStyle = '#335577'; ctx.fillRect(20, H-105, 100, 42);
+    ctx.fillStyle = 'white'; setFont(13, 'bold'); ctx.textAlign = 'center';
+    ctx.fillText('▲ ВВЕРХ', 70, H-79);
+  }
+  if (dealerScroll + 24 < CARS.length) {
+    ctx.fillStyle = '#335577'; ctx.fillRect(W-120, H-105, 100, 42);
+    ctx.fillStyle = 'white'; setFont(13, 'bold'); ctx.textAlign = 'center';
+    ctx.fillText('▼ ВНИЗ', W-70, H-79);
+  }
+  ctx.fillStyle = '#888'; setFont(12); ctx.textAlign = 'center';
+  ctx.fillText(`Всего: ${CARS.length} | Куплено: ${state.owned.length} | ESC — назад`, W/2, H-30);
+}
+
+function handleDealerTap(x, y){
+  const top = 88, rowH = 76, pad = 10;
+  const cols = isMobile ? 2 : 3;
+  const cardW = (W - pad*(cols+1)) / cols;
+  const visible = CARS.slice(dealerScroll, dealerScroll + 24);
+  if (x >= 20 && x <= 120 && y >= H-105 && y <= H-63 && dealerScroll > 0) {
+    dealerScroll = Math.max(0, dealerScroll - 12); return;
+  }
+  if (x >= W-120 && x <= W-20 && y >= H-105 && y <= H-63 && dealerScroll+24 < CARS.length) {
+    dealerScroll = Math.min(CARS.length-10, dealerScroll + 12); return;
+  }
+  visible.forEach((car, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    const cx = pad + col*(cardW+pad);
+    const cy = top + row*(rowH+pad);
+    if (y > H - 130) return;
+    if (x >= cx && x <= cx+cardW && y >= cy && y <= cy+rowH) {
+      if (state.owned.includes(car.id)) { state.currentCar = car.id; save(); return; }
+      if (state.money >= car.price) {
+        state.money -= car.price;
+        state.owned.push(car.id);
+        ensureUpgrades(car.id);
+        state.currentCar = car.id;
+        save();
+      }
+    }
+  });
+}
+
+// ============ RENDER ============
+let camX = 0, camY = 0;
+let fpsCounter = { frames: 0, fps: 60, lastUpdate: 0 };
+
+function render(){
+  if (state.mode === 'WORLD') renderWorld();
+  else if (state.mode === 'RACE') renderRace();
+  else if (state.mode === 'GARAGE') drawGarage();
+  else if (state.mode === 'DEALER') drawDealer();
+  else if (state.mode === 'RESULT') renderResult();
+  drawMobileButtons();
+  if (state.message && state.mode !== 'RACE') {
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    setFont(22, 'bold');
+    const tw = ctx.measureText(state.message.text).width + 60;
+    ctx.fillRect(W/2 - tw/2, H*0.22, tw, 52);
+    ctx.fillStyle = state.message.color;
+    ctx.textAlign = 'center';
+    ctx.fillText(state.message.text, W/2, H*0.22 + 35);
+  }
+}
+
+function renderWorld(){
+  const p = state.player;
+  camX += (p.x - camX) * 0.12;
+  camY += (p.y - camY) * 0.12;
+
+  const isNight = state.weather.type === 'night';
+  const isRain = state.weather.type === 'rain';
+  ctx.fillStyle = isNight ? '#0a0f1a' : (isRain ? '#151b1f' : '#16241a');
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.translate(W/2 - camX, H/2 - camY);
+
+  const vx0 = camX - W/2 - 200, vx1 = camX + W/2 + 200;
+  const vy0 = camY - H/2 - 200, vy1 = camY + H/2 + 200;
+
+  const cx0 = Math.floor(vx0 / CHUNK_SIZE);
+  const cx1 = Math.floor(vx1 / CHUNK_SIZE);
+  const cy0 = Math.floor(vy0 / CHUNK_SIZE);
+  const cy1 = Math.floor(vy1 / CHUNK_SIZE);
+  for (let cy = cy0; cy <= cy1; cy++) {
+    for (let cx = cx0; cx <= cx1; cx++) {
+      const chunk = getChunk(cx, cy);
+      ctx.drawImage(chunk.cvs, chunk.x, chunk.y, CHUNK_SIZE, CHUNK_SIZE);
+    }
+  }
+
+  // Markers
+  for (const m of markers) {
+    if (m.type === 'boss' && state.bossesBeaten >= BOSSES.length) continue;
+    if (m.x < vx0 || m.x > vx1 || m.y < vy0 || m.y > vy1) continue;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath(); ctx.arc(m.x, m.y, 60, 0, Math.PI*2);
+    ctx.fillStyle = m.color; ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = m.color; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(m.x, m.y, 60, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = 'white'; setFont(15, 'bold'); ctx.textAlign = 'center';
+    ctx.fillText(m.label, m.x, m.y+6);
+    if (state.nearMarker === m) {
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(m.x, m.y, 70, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+
+  // Pedestrians
+  for (const ped of pedestrians) {
+    if (ped.x < vx0 || ped.x > vx1 || ped.y < vy0 || ped.y > vy1) continue;
+    ctx.fillStyle = ped.color;
+    ctx.fillRect(ped.x - 4, ped.y - 4, 8, 8);
+  }
+
+  // Traffic
+  for (const t of traffic) {
+    if (t.x < vx0 || t.x > vx1 || t.y < vy0 || t.y > vy1) continue;
+    drawCarShape(t.x, t.y, t.angle, t.color, 0.9);
+  }
+
+  // Police
+  for (const cop of police) {
+    if (cop.x < vx0 || cop.x > vx1 || cop.y < vy0 || cop.y > vy1) continue;
+    drawCarShape(cop.x, cop.y, cop.angle, '#111', 1);
+    const flash = Math.floor(cop.siren * 6) % 2 === 0;
+    ctx.save();
+    ctx.translate(cop.x, cop.y);
+    ctx.rotate(cop.angle + Math.PI/2);
+    ctx.fillStyle = flash ? '#ff0000' : '#0000ff';
+    ctx.fillRect(-8, -12, 6, 4);
+    ctx.fillStyle = flash ? '#0000ff' : '#ff0000';
+    ctx.fillRect(2, -12, 6, 4);
+    ctx.restore();
+  }
+
+  // Player
+  drawCarShape(p.x, p.y, p.angle, '#FF3333', 1);
+
+  // Headlights
+  if (isNight || isRain) {
+    ctx.save();
+    ctx.translate(p.x, p.y); ctx.rotate(p.angle);
+    const grad = ctx.createRadialGradient(35, 0, 10, 35, 0, 200);
+    grad.addColorStop(0, 'rgba(255,240,150,0.4)');
+    grad.addColorStop(1, 'rgba(255,240,150,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(20, -20); ctx.lineTo(240, -90); ctx.lineTo(240, 90); ctx.lineTo(20, 20);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // HUD
+  ctx.fillStyle = 'rgba(0,0,0,0.78)';
+  ctx.fillRect(12, 12, Math.min(320, W-24), 120);
+  ctx.fillStyle = 'white'; ctx.textAlign = 'left';
+  setFont(15, 'bold');
+  ctx.fillText(`${getCar(state.currentCar).brand} ${getCar(state.currentCar).model}`, 22, 34);
+  setFont(13);
+  ctx.fillText(`💰 $${state.money}`, 22, 56);
+  ctx.fillText(`👑 Боссы: ${state.bossesBeaten}/${BOSSES.length}`, 22, 76);
+  const wIcon = state.weather.type==='night'?'🌙':state.weather.type==='rain'?'🌧':'☀';
+  ctx.fillStyle = state.weather.type==='rain'?'#88ccff':state.weather.type==='night'?'#aa99ff':'#ffdd66';
+  ctx.fillText(`${wIcon} ${Math.round(state.weather.temp)}°C`, 22, 96);
+  if (state.lastDistrict) {
+    ctx.fillStyle = '#88ccff';
+    ctx.fillText(`📍 ${state.lastDistrict}`, 22, 116);
+  }
+
+  ctx.textAlign = 'right';
+  setFont(32, 'bold'); ctx.fillStyle = '#88ccff';
+  ctx.fillText(Math.round(p.speed/1.4), W-24, 44);
+  setFont(12); ctx.fillStyle = 'white';
+  ctx.fillText('км/ч', W-24, 62);
+
+  // Wanted stars
+  if (state.wanted > 0) {
+    const startX = W/2 - 5*22/2;
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = i < state.wanted ? '#ffcc00' : 'rgba(255,255,255,0.15)';
+      setFont(26, 'bold'); ctx.textAlign = 'center';
+      ctx.fillText('★', startX + i*22 + 11, 40);
+    }
+  }
+
+  // Minimap
+  if (QP[quality].minimap) {
+    const size = isMobile ? 90 : 140;
+    const mx = W - size - 20, my = 80;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(mx, my, size, size);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2; ctx.strokeRect(mx, my, size, size);
+    const scale = size / (WORLD_SIZE * 2);
+    const ccx = mx + size/2, ccy = my + size/2;
+    for (const m of markers) {
+      if (m.type === 'boss' && state.bossesBeaten >= BOSSES.length) continue;
+      ctx.fillStyle = m.color;
+      ctx.fillRect(ccx + m.x*scale - 2, ccy + m.y*scale - 2, 4, 4);
+    }
+    for (const c of police) {
+      ctx.fillStyle = Math.floor(c.siren*6)%2===0?'#ff0000':'#0000ff';
+      ctx.fillRect(ccx + c.x*scale - 2, ccy + c.y*scale - 2, 4, 4);
+    }
+    ctx.fillStyle = '#ff3333';
+    ctx.fillRect(ccx + p.x*scale - 3, ccy + p.y*scale - 3, 6, 6);
+  }
+
+  // FPS
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  setFont(11);
+  ctx.textAlign = 'left';
+  ctx.fillText(`FPS: ${fpsCounter.fps}`, 14, H-14);
+
+  // Hint
+  if (state.nearMarker && !isMobile) {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(W/2-170, H-88, 340, 52);
+    ctx.fillStyle = 'white'; ctx.textAlign = 'center';
+    setFont(20, 'bold');
+    ctx.fillText('Нажми E / SPACE', W/2, H-54);
+  }
+}
+
+function drawCarShape(x, y, angle, color, alpha){
+  ctx.save();
+  ctx.globalAlpha = alpha || 1;
+  ctx.translate(x, y); ctx.rotate(angle + Math.PI/2);
+  ctx.fillStyle = color;
+  ctx.fillRect(-13, -22, 26, 44);
+  ctx.fillStyle = 'rgba(120,200,255,0.7)';
+  ctx.fillRect(-9, -10, 18, 10);
+  ctx.fillStyle = '#FFFF88';
+  ctx.fillRect(-11, -22, 6, 4);
+  ctx.fillRect(5, -22, 6, 4);
+  ctx.fillStyle = '#FF4444';
+  ctx.fillRect(-9, 20, 5, 3);
+  ctx.fillRect(4, 20, 5, 3);
+  ctx.restore();
+}
+
+function drawWeatherOverlay(){
+  const w = state.weather;
+  if (w.type === 'night') {
+    ctx.fillStyle = 'rgba(10,15,45,0.5)';
+    ctx.fillRect(0,0,W,H);
+  } else if (w.type === 'rain') {
+    ctx.fillStyle = 'rgba(20,30,50,0.3)';
+    ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle = 'rgba(160,200,255,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (const p of w.rainParticles) {
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.len*0.3, p.y + p.len);
+    }
+    ctx.stroke();
+  }
+}
+
+function renderRace(){
+  const r = state.race;
+  if (!r) return;
+  const isNight = state.weather.type === 'night';
+  const isRain = state.weather.type === 'rain';
+  ctx.fillStyle = isNight ? '#0a0a12' : (isRain ? '#1a1f24' : '#1a1a1a');
+  ctx.fillRect(0,0,W,H);
+
+  const shakeX = r.shake > 0 ? (Math.random()-0.5) * r.shake * 6 : 0;
+  const shakeY = r.shake > 0 ? (Math.random()-0.5) * r.shake * 6 : 0;
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  const roadY = H*0.5, roadH = H*0.42;
+  ctx.fillStyle = isNight ? '#1a1a24' : '#2a2a2a';
+  ctx.fillRect(0, roadY-roadH/2, W, roadH);
+  ctx.fillStyle = '#3a3a3a';
+  ctx.fillRect(0, roadY-roadH/2, W, 4);
+  ctx.fillRect(0, roadY+roadH/2-4, W, 4);
+
+  // Road markers - fixed to loop visible range only
+  const scroll = r.player.dist * 20;
+  const offset = scroll % 100;
+  ctx.fillStyle = '#FFD700';
+  for (let x = -offset; x < W; x += 100) {
+    ctx.fillRect(x, roadY-roadH/4-2, 60, 4);
+    ctx.fillRect(x, roadY+roadH/4-2, 60, 4);
+  }
+
+  // Finish line - fixed orientation
+  const pX = W*0.25;
+  const ppm = W / 40;
+  const finishX = pX + (r.distance - r.player.dist) * ppm;
+  if (finishX > -50 && finishX < W+50) {
+    for (let i = 0; i < 12; i++) {
+      ctx.fillStyle = i%2===0?'white':'black';
+      ctx.fillRect(finishX, roadY-roadH/2+i*roadH/12, 24, roadH/12);
+    }
+  }
+
+  const pY = roadY + roadH/8;
+  const oX = pX + (r.opponent.dist - r.player.dist) * ppm;
+  const oY = roadY - roadH/8;
+
+  // Speed lines at high speed
+  if (r.player.speed > 80) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++) {
+      const ly = roadY - roadH/2 + Math.random() * roadH;
+      const lx = Math.random() * W;
+      ctx.beginPath();
+      ctx.moveTo(lx, ly);
+      ctx.lineTo(lx - 40 - r.player.speed*0.3, ly);
+      ctx.stroke();
+    }
+  }
+
+  if (oX > -100 && oX < W+100) drawRaceCar(oX, oY, '#3388FF');
+
+  // Player with wheelie effect
+  const wheelieAngle = r.player.slipping && r.player.speed < 25 ? -0.12 : 0;
+  ctx.save();
+  ctx.translate(pX, pY);
+  ctx.rotate(wheelieAngle);
+  drawRaceCar(0, 0, '#FF3333');
+
+  // Smoke on slip
+  if (r.player.slipping) {
+    for (let i = 0; i < 3; i++) {
+      const alpha = 0.3 - Math.random()*0.2;
+      ctx.fillStyle = `rgba(200,200,200,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(-40 + Math.random()*20, 20 + Math.random()*10, 8 + Math.random()*12, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  ctx.restore();
+
+  // HUD
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.fillRect(10, 10, W-20, 140);
+  ctx.fillStyle = 'white'; ctx.textAlign = 'left';
+  setFont(20, 'bold');
+  ctx.fillText(`${Math.round(r.player.speed*3.6)} км/ч  |  ${r.player.gear}/${r.player.car.gearRatios.length}`, 22, 38);
+  setFont(15);
+  ctx.fillText(`Дистанция: ${Math.round(r.player.dist)} / ${r.distance} м`, 22, 62);
+  ctx.fillStyle = '#88ccff';
+  ctx.fillText(`${r.opponentName}: ${Math.round(r.opponent.speed*3.6)} км/ч | ${Math.round(r.opponent.dist)}м`, 22, 84);
+
+  if (r.player.slipping) {
+    ctx.fillStyle = '#ff4444'; setFont(20, 'bold');
+    ctx.fillText('⚠ SLIP', 22, 110);
+  } else if (r.player.shiftTimer > 0) {
+    ctx.fillStyle = '#ffaa00'; setFont(18, 'bold');
+    ctx.fillText('SHIFTING', 22, 110);
+  } else if (r.player.nitroActive) {
+    ctx.fillStyle = '#ff44ff'; setFont(18, 'bold');
+    ctx.fillText('N2O ACTIVE', 22, 110);
+  }
+
+  const wIcon = isRain?'🌧':isNight?'🌙':'☀';
+  ctx.fillStyle = isRain?'#88ccff':isNight?'#aa99ff':'#ffdd66';
+  setFont(13);
+  ctx.fillText(`${wIcon} ${Math.round(state.weather.temp)}°C`, 22, 132);
+
+  // RPM bar
+  const rpmPct = r.player.rpm / r.player.car.redline;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(10, 158, W-20, 34);
+  ctx.fillStyle = rpmPct<0.55?'#22cc22':rpmPct<0.85?'#ffaa22':'#ff2222';
+  ctx.fillRect(10, 158, (W-20)*rpmPct, 34);
+  ctx.fillStyle = 'white'; setFont(17, 'bold'); ctx.textAlign = 'center';
+  ctx.fillText(`${Math.round(r.player.rpm)} / ${r.player.car.redline}`, W/2, 181);
+  ctx.strokeStyle = 'white'; ctx.lineWidth = 3;
+  const optX = 10 + (W-20) * 0.96;
+  ctx.beginPath(); ctx.moveTo(optX, 158); ctx.lineTo(optX, 192); ctx.stroke();
+
+  // Countdown
+  if (r.countdown > 0) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, W, H);
+    let txt;
+    if (r.countdown > 2.5) txt = '3';
+    else if (r.countdown > 1.5) txt = '2';
+    else if (r.countdown > 0.5) txt = '1';
+    else txt = 'GO!';
+    ctx.fillStyle = txt === 'GO!' ? '#66ff66' : 'white';
+    setFont(Math.round(H*0.28), 'bold');
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(txt, W/2, H/2);
+    ctx.textBaseline = 'alphabetic';
+  }
+  drawWeatherOverlay();
+}
+
+function drawRaceCar(x, y, color){
+  ctx.fillStyle = color;
+  ctx.fillRect(x-34, y-22, 68, 44);
+  ctx.fillStyle = 'rgba(120,200,255,0.7)';
+  ctx.fillRect(x-12, y-18, 24, 18);
+  ctx.fillStyle = '#111';
+  ctx.fillRect(x-38, y-24, 8, 12);
+  ctx.fillRect(x+30, y-24, 8, 12);
+  ctx.fillRect(x-38, y+12, 8, 12);
+  ctx.fillRect(x+30, y+12, 8, 12);
+}
+
+function renderResult(){
+  const r = state.race;
+  if (!r) return;
+  ctx.fillStyle = 'rgba(0,0,0,0.93)';
+  ctx.fillRect(0,0,W,H);
+  ctx.textAlign = 'center';
+  if (r.playerWon) {
+    ctx.fillStyle = '#66ff88';
+    setFont(Math.round(Math.min(W,H)*0.14), 'bold');
+    ctx.fillText('ПОБЕДА!', W/2, H/2-70);
+    ctx.fillStyle = 'white';
+    setFont(Math.round(Math.min(W,H)*0.08), 'bold');
+    ctx.fillText(`+$${r.reward}`, W/2, H/2+10);
+    setFont(20);
+    ctx.fillText(`Время: ${r.player.time.toFixed(2)} с`, W/2, H/2+55);
+    ctx.fillText(`Скорость на финише: ${Math.round(r.player.speed*3.6)} км/ч`, W/2, H/2+85);
+    const recKey = state.currentCar + '_' + r.distance;
+    if (state.records[recKey] && Math.abs(state.records[recKey].time - r.player.time) < 0.01) {
+      ctx.fillStyle = '#ffcc00'; setFont(18, 'bold');
+      ctx.fillText('🏆 НОВЫЙ РЕКОРД!', W/2, H/2+120);
+    }
+  } else {
+    ctx.fillStyle = '#ff4455';
+    setFont(Math.round(Math.min(W,H)*0.11), 'bold');
+    ctx.fillText('ПОРАЖЕНИЕ', W/2, H/2-60);
+    ctx.fillStyle = 'white'; setFont(20);
+    ctx.fillText(`Ты: ${Math.round(r.player.dist)}м за ${r.player.time.toFixed(2)} с`, W/2, H/2+10);
+    ctx.fillText(`Соперник: ${Math.round(r.opponent.dist)}м`, W/2, H/2+45);
+  }
+  ctx.fillStyle = '#888'; setFont(16);
+  ctx.fillText(isMobile ? 'Тапни для продолжения' : 'ESC / ЛКМ — продолжить', W/2, H-70);
+}
+
+// ============ LOOP ============
+let lastT = performance.now();
+let accumulator = 0;
+let uiThrottle = 0;
+const FIXED_DT = 1/60;
+
+function loop(t){
+  const realDt = Math.min(0.1, (t - lastT) / 1000);
+  lastT = t;
+  accumulator += realDt;
+  uiThrottle += realDt;
+
+  fpsCounter.frames++;
+  if (t - fpsCounter.lastUpdate > 1000) {
+    fpsCounter.fps = fpsCounter.frames;
+    fpsCounter.frames = 0;
+    fpsCounter.lastUpdate = t;
+    if (fpsCounter.fps < 40 && quality > QUALITY.LOW && isMobile) quality--;
+  }
+
+  // Fixed-step physics
+  let iterations = 0;
+  while (accumulator >= FIXED_DT && iterations < 3) {
+    if (state.mode === 'WORLD') updateWorld(FIXED_DT);
+    else if (state.mode === 'RACE') updateRace(FIXED_DT);
+    accumulator -= FIXED_DT;
+    iterations++;
+  }
+  if (iterations === 3) accumulator = 0;
+
+  // UI throttled to 30 FPS for non-race, always for race
+  if (state.mode === 'RACE' || uiThrottle >= 0.033) {
+    render();
+    uiThrottle = 0;
+  }
+  requestAnimationFrame(loop);
+}
+
+// ============ STARTUP ============
+load();
+state.owned.forEach(id => ensureUpgrades(id));
+if (!state.owned.includes(state.currentCar)) state.currentCar = state.owned[0];
+ensureUpgrades(state.currentCar);
+
+state.weather.temp = 22;
+
+queueChunksAround(state.player.x, state.player.y);
+setTimeout(processPreRender, 100);
+
+document.getElementById('start').addEventListener('click', () => {
+  document.getElementById('start').style.display = 'none';
+  initAudio();
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
