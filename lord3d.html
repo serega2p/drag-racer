@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Средневековый лорд 3D</title>
+<style>
+    body { margin: 0; overflow: hidden; background: #000; font-family: Georgia, serif; color: #e8d5b0; user-select: none; }
+    canvas { display: block; }
+    
+    /* Интерфейс поверх 3D */
+    #ui { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
+    .top-bar { pointer-events: auto; background: rgba(26,20,16,0.9); padding: 10px; display: flex; justify-content: space-around; border-bottom: 2px solid #8b6f47; font-size: 12px; text-align: center; }
+    .top-bar b { color: #f0c060; display: block; font-size: 15px; margin-top: 2px; }
+    
+    .bottom-bar { pointer-events: auto; padding: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+    .dpad { display: grid; grid-template-columns: 55px 55px 55px; gap: 6px; }
+    .dpad button { width: 55px; height: 55px; background: rgba(139,111,71,0.8); border: 2px solid #f0c060; color: white; border-radius: 8px; font-size: 22px; touch-action: none; }
+    .dpad button:active { background: #f0c060; color: black; }
+    
+    .action-btns { display: flex; flex-direction: column; gap: 10px; }
+    .action-btns button { width: 80px; height: 80px; border-radius: 50%; background: rgba(200,50,50,0.9); border: 2px solid #ffcccc; color: white; font-size: 14px; font-weight: bold; touch-action: none; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+    .action-btns button:active { background: #ffcccc; color: black; }
+    
+    /* Меню и логи */
+    #modal { display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; align-items: center; justify-content: center; padding: 15px; pointer-events: auto; }
+    #modal.show { display: flex; }
+    #modalBody { background: #2a1f15; border: 2px solid #8b6f47; border-radius: 10px; padding: 15px; max-width: 400px; width: 100%; max-height: 80vh; overflow-y: auto; }
+    #modalBody h2 { color: #d4a574; text-align: center; margin-top: 0; margin-bottom: 15px; }
+    
+    button.menu-btn { background: #4a3520; color: #f0d0a0; border: 1px solid #8b6f47; padding: 12px; width: 100%; margin-bottom: 8px; border-radius: 6px; font-family: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+    button.menu-btn:active { background: #6a5038; }
+    button.menu-btn small { display: block; color: #a08860; font-size: 11px; margin-top: 3px; }
+    
+    .log { position: absolute; bottom: 100px; left: 10px; width: calc(100% - 20px); max-height: 90px; overflow-y: auto; background: rgba(0,0,0,0.7); font-size: 11px; padding: 8px; pointer-events: none; border-radius: 5px; border: 1px solid #4a3520; }
+    .log div { margin-bottom: 3px; border-bottom: 1px solid #333; padding-bottom: 2px; }
+    .log .good { color: #90e090; } .log .bad { color: #e09090; } .log .info { color: #c0a870; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="ui">
+    <div class="top-bar">
+        <div>Золото<b id="ui-gold">100</b></div>
+        <div>Еда<b id="ui-food">50</b></div>
+        <div>Войско<b id="ui-troops">10</b></div>
+        <div>Слава<b id="ui-fame">0</b></div>
+    </div>
+    
+    <div class="log" id="ui-log"></div>
+    
+    <div class="bottom-bar">
+        <div class="dpad">
+            <div></div><button id="btnU">▲</button><div></div>
+            <button id="btnL">◀</button><button id="btnD">▼</button><button id="btnR">▶</button>
+        </div>
+        <div class="action-btns">
+            <button id="btnEnter" style="display:none; background:#4080c0; border-color:#80b0f0;">ВОЙТИ</button>
+        </div>
+    </div>
+</div>
+
+<div id="modal"><div id="modalBody"></div></div>
+
+<script>
+// --- 1. СОСТОЯНИЕ ИГРЫ ---
+const S = { gold: 100, food: 50, troops: 10, fame: 0, x: 0, z: 0 };
+const LOCS = [
+    { id: 'praven', name: 'Правен', x: -25, z: -15, type: 'town' },
+    { id: 'village', name: 'Деревня', x: 15, z: 20, type: 'village' },
+    { id: 'tihr', name: 'Тихр', x: -30, z: 25, type: 'town' },
+    { id: 'tulga', name: 'Тулага', x: 35, z: -25, type: 'town' },
+    { id: 'bandits', name: 'Лагерь Бандитов', x: 0, z: -35, type: 'bandit' }
+];
+
+// --- 2. 3D ДВИЖОК ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB); // Небо
+scene.fog = new THREE.Fog(0x87CEEB, 30, 90); // Туман для производительности
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: false }); // antialias off для скорости на телефоне
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Свет
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(20, 50, 20);
+scene.add(dirLight);
+
+// Земля
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshLambertMaterial({ color: 0x4a7a3a }));
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// Игрок (Рыцарь)
+const playerMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.8, 8), new THREE.MeshLambertMaterial({ color: 0xf0c060 }));
+playerMesh.position.set(S.x, 0.9, S.z);
+scene.add(playerMesh);
+
+// Деревья
+for(let i=0; i<60; i++) {
+    const tree = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 2, 5), new THREE.MeshLambertMaterial({ color: 0x5a3a1a }));
+    trunk.position.y = 1;
+    const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3, 5), new THREE.MeshLambertMaterial({ color: 0x2a5a2a }));
+    leaves.position.y = 3;
+    tree.add(trunk, leaves);
+    tree.position.set((Math.random() - 0.5) * 120, 0, (Math.random() - 0.5) * 120);
+    if(tree.position.length() > 10) scene.add(tree);
+}
+
+// Города (3D объекты)
+LOCS.forEach(L => {
+    const group = new THREE.Group();
+    const color = L.type === 'town' ? 0x808080 : L.type === 'village' ? 0x8b6f47 : 0x4a2a2a;
+    const height = L.type === 'town' ? 8 : 3;
+    const box = new THREE.Mesh(new THREE.BoxGeometry(6, height, 6), new THREE.MeshLambertMaterial({ color: color }));
+    box.position.y = height / 2;
+    group.add(box);
+    group.position.set(L.x, 0, L.z);
+    scene.add(group);
+});
+
+// Враги (Красные отряды)
+const enemies = [];
+for(let i=0; i<4; i++) {
+    const e = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 8), new THREE.MeshLambertMaterial({ color: 0xaa2020 }));
+    e.position.set(Math.random()*60-30, 0.75, Math.random()*60-30);
+    scene.add(e);
+    enemies.push({ mesh: e, speed: 0.08 });
+}
+
+// --- 3. УПРАВЛЕНИЕ ---
+const keys = { up: false, down: false, left: false, right: false };
+const bind = (id, key) => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', e => { e.preventDefault(); keys[key] = true; }, {passive: false});
+    el.addEventListener('touchend', e => { e.preventDefault(); keys[key] = false; }, {passive: false});
+    el.addEventListener('mousedown', () => keys[key] = true);
+    el.addEventListener('mouseup', () => keys[key] = false);
+    el.addEventListener('mouseleave', () => keys[key] = false);
+};
+bind('btnU', 'up'); bind('btnD', 'down'); bind('btnL', 'left'); bind('btnR', 'right');
+
+// --- 4. ИНТЕРФЕЙС ---
+function updateUI() {
+    document.getElementById('ui-gold').innerText = S.gold;
+    document.getElementById('ui-food').innerText = S.food;
+    document.getElementById('ui-troops').innerText = S.troops;
+    document.getElementById('ui-fame').innerText = S.fame;
+}
+function log(msg, type='info') {
+    const el = document.getElementById('ui-log');
+    const d = document.createElement('div');
+    d.className = type;
+    d.innerText = msg;
+    el.prepend(d);
+    if(el.children.length > 10) el.lastChild.remove();
+}
+function showModal(title, options) {
+    document.getElementById('modalBody').innerHTML = `<h2>${title}</h2>`;
+    const container = document.getElementById('modalBody');
+    
+    options.forEach(opt => {
+        const b = document.createElement('button');
+        b.className = 'menu-btn';
+        b.innerHTML = `${opt.label}<small>${opt.sub || ''}</small>`;
+        b.onclick = () => {
+            if(opt.action) opt.action();
+            if(opt.keepOpen) {
+                // Перерисовываем текущее меню, чтобы обновить цифры
+                if(title === 'Рынок') openMarket();
+                else if(title === 'Таверна') openTavern();
+            } else {
+                closeModal();
+            }
+            updateUI();
+        };
+        container.appendChild(b);
+    });
+    
+    const close = document.createElement('button'); 
+    close.className='menu-btn'; close.style.textAlign='center'; close.innerText='Закрыть';
+    close.onclick = closeModal;
+    container.appendChild(close);
+    document.getElementById('modal').classList.add('show');
+}
+function closeModal() { document.getElementById('modal').classList.remove('show'); }
+
+// --- 5. ЛОГИКА ИГРЫ (Взаимодействие) ---
+function openLocation(L) {
+    if(L.type === 'town') {
+        showModal(L.name, [
+            { label: '📦 Рынок', action: () => openMarket(), keepOpen: true },
+            { label: '🍺 Таверна', action: () => openTavern(), keepOpen: true },
+            { label: '⚒ Кузнец', action: () => log('Кузнец спит...'), keepOpen: true }
+        ]);
+    } else if(L.type === 'village') {
+        showModal(L.name, [
+            { label: 'Нанять ополченца', sub: '5 зол.', action: () => { if(S.gold >= 5) { S.gold -= 5; S.troops++; log('Нанят ополченец', 'good'); } }, keepOpen: true },
+            { label: 'Купить еды', sub: '10 зол.', action: () => { if(S.gold >= 10) { S.gold -= 10; S.food += 10; log('+10 еды', 'good'); } }, keepOpen: true },
+            { label: 'Работать в поле', action: () => { S.gold += 15; S.food += 5; log('+15 зол., +5 еды', 'good'); } }
+        ]);
+    } else if(L.type === 'bandit') {
+        showModal(L.name, [
+            { label: '⚔ Атаковать', sub: 'Опасно!', action: () => resolveBattle() }
+        ]);
+    }
+}
+function openMarket() {
+    const opts = [
+        { label: 'Купить Зерно', sub: '5 зол. (+5 еды)', action: () => { if(S.gold >= 5) { S.gold -= 5; S.food += 5; log('+5 еды', 'good'); } }, keepOpen: true },
+        { label: 'Продать Зерно', sub: '3 зол. (-5 еды)', action: () => { if(S.food >= 5) { S.food -= 5; S.gold += 3; log('+3 зол.', 'good'); } }, keepOpen: true }
+    ];
+    showModal('Рынок', opts);
+}
+function openTavern() {
+    showModal('Таверна', [
+        { label: 'Нанять наёмника', sub: '25 зол. (+2 войска)', action: () => { if(S.gold >= 25) { S.gold -= 25; S.troops += 2; log('Наняты наёмники', 'good'); } }, keepOpen: true },
+        { label: 'Отдохнуть', sub: '10 зол. (+20 еды)', action: () => { if(S.gold >= 10) { S.gold -= 10; S.food += 20; log('Отдых', 'good'); } }, keepOpen: true }
+    ]);
+}
+function resolveBattle() {
+    const enemyPower = 15;
+    const myPower = S.troops * 2;
+    if(myPower > enemyPower) {
+        S.gold += 50; S.fame += 5;
+        log('⚔ Победа! +50 зол., +5 славы', 'good');
+    } else {
+        const loss = Math.max(1, Math.floor(S.troops * 0.5));
+        S.troops -= loss;
+        log(`💀 Поражение! -${loss} войск`, 'bad');
+    }
+    if(S.troops < 1) S.troops = 1;
+    updateUI();
+}
+
+// --- 6. ИГРОВОЙ ЦИКЛ ---
+let currentNearbyLoc = null;
+function animate() {
+    requestAnimationFrame(animate);
+    
+    // Движение игрока
+    const speed = 0.35;
+    let moved = false;
+    if(keys.up) { S.z -= speed; moved = true; }
+    if(keys.down) { S.z += speed; moved = true; }
+    if(keys.left) { S.x -= speed; moved = true; }
+    if(keys.right) { S.x += speed; moved = true; }
+    
+    if(moved) {
+        playerMesh.position.set(S.x, 0.9, S.z);
+        // Анимация ходьбы (покачивание)
+        playerMesh.position.y = 0.9 + Math.abs(Math.sin(Date.now() * 0.01)) * 0.2;
+    }
+
+    // Камера следит за игроком
+    camera.position.x = S.x;
+    camera.position.y = 12;
+    camera.position.z = S.z + 15;
+    camera.lookAt(playerMesh.position);
+
+    // Проверка на подход к городу
+    currentNearbyLoc = null;
+    LOCS.forEach(L => {
+        const d = Math.hypot(S.x - L.x, S.z - L.z);
+        if(d < (L.type === 'town' ? 8 : 6)) {
+            currentNearbyLoc = L;
+        }
+    });
+
+    // Кнопка "Войти"
+    const btnEnter = document.getElementById('btnEnter');
+    if(currentNearbyLoc && !document.getElementById('modal').classList.contains('show')) {
+        btnEnter.style.display = 'block';
+        btnEnter.innerText = 'ВОЙТИ В ' + currentNearbyLoc.name.toUpperCase();
+        btnEnter.onclick = () => { openLocation(currentNearbyLoc); };
+    } else {
+        btnEnter.style.display = 'none';
+    }
+
+    // Движение врагов (ИИ)
+    enemies.forEach(e => {
+        const dx = S.x - e.mesh.position.x;
+        const dz = S.z - e.mesh.position.z;
+        const dist = Math.hypot(dx, dz);
+        
+        // Если игрок близко, враг идёт к нему
+        if(dist < 25 && dist > 2) {
+            e.mesh.position.x += (dx / dist) * e.speed;
+            e.mesh.position.z += (dz / dist) * e.speed;
+        }
+        
+        // Если враг догнал — бой!
+        if(dist < 2 && !document.getElementById('modal').classList.contains('show')) {
+            e.mesh.position.set(Math.random()*80-40, 0.75, Math.random()*80-40);
+            log('⚠ На вас напали!', 'bad');
+            resolveBattle();
+        }
+    });
+
+    renderer.render(scene, camera);
+}
+
+// Запуск
+updateUI();
+log('Добро пожаловать в 3D мир!', 'info');
+log('Идите к городам, чтобы войти.', 'info');
+animate();
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
